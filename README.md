@@ -1,57 +1,107 @@
-# Runner’s Clean Air Planner
+# Runner Air Planner
 
-## Descripción
-**Runner’s Clean Air Planner** es una aplicación web que ayuda a corredores urbanos y personas activas a elegir las mejores horas para entrenar al aire libre en la ciudad.  
-La herramienta combina datos abiertos de **calidad del aire** y **meteorología** con un modelo de *machine learning* que predice cómo evolucionarán estas variables en las próximas horas.  
-A partir de esa predicción, la aplicación recomienda de forma personalizada las franjas horarias más adecuadas para correr, teniendo en cuenta preferencias del usuario como duración del entreno, temperatura máxima aceptable, viento o lluvia.
+Aplicación de ejemplo que combina datos abiertos de calidad del aire en Madrid con un modelo de *machine learning* ligero para recomendar cuándo salir a correr. El proyecto está dividido en tres capas: un pipeline de ingesta de datos, un backend en FastAPI que entrena el modelo y expone endpoints, y un panel en Streamlit que consume dichas predicciones.
 
----
+## Estructura del repositorio
 
-## Objetivos principales
-1. Reunir y almacenar datos abiertos de calidad del aire y meteorología.  
-2. Desarrollar un modelo de *machine learning* que prediga la evolución del índice de calidad del aire (AQI) en un horizonte de 1 a 6 horas.  
-3. Implementar un sistema de recomendación que combine predicciones y preferencias del usuario.  
-4. Construir una interfaz web sencilla e intuitiva que muestre la información de forma clara y práctica.  
+```
+runner-air-planner/
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+├── data/
+│   └── .gitkeep
+├── src/
+│   └── runner_air_planner/
+│       ├── __init__.py
+│       ├── data_pipeline/
+│       │   └── ingest_madrid_air.py    # Descarga y normalización de datos abiertos
+│       ├── backend/
+│       │   └── app/
+│       │       ├── __init__.py
+│       │       ├── main.py             # API FastAPI con el modelo KMeans
+│       │       └── storage.py          # Utilidades de carga y pivoteado de CSV
+│       └── frontend/
+│           └── streamlit_app.py        # Panel interactivo
+└── .github/
+    └── workflows/
+        └── ci.yml                      # Workflow de integración continua
+```
 
-## Público objetivo
-- Corredores urbanos y deportistas amateurs.  
-- Ciudadanos que quieran elegir el mejor momento para pasear, ir en bici o hacer actividades al aire libre.  
-- Estudiantes y profesionales que busquen un caso práctico de uso de datos abiertos y *machine learning*.  
+## Requisitos
 
----
+- Python 3.11 o superior
+- Las dependencias listadas en `requirements.txt`
 
-## Plan inicial de trabajo
+Instalación rápida:
 
-### Fase 1: Preparación
-- Crear el repositorio en GitHub.  
-- Configurar el entorno de desarrollo y dependencias básicas.  
+```bash
+python -m venv .venv
+source .venv/bin/activate  # En Windows: .venv\\Scripts\\activate
+pip install -r requirements.txt
+```
 
-### Fase 2: Ingesta de datos
-- Conectar con APIs de calidad del aire (red municipal de Madrid u OpenAQ).  
-- Incorporar datos meteorológicos (Open-Meteo).  
-- Guardar la información en una base de datos ligera (SQLite).  
+Si prefieres Poetry, el repositorio usa una estructura estándar `src/` que funciona correctamente con el modo por defecto de empaquetado.
+Puedes instalar las dependencias y trabajar en modo aislado con:
 
-### Fase 3: Análisis y features
-- Explorar el comportamiento histórico de la calidad del aire.  
-- Construir variables (lags, medias móviles, interacciones con meteorología).  
+```bash
+poetry install
+poetry run uvicorn runner_air_planner.backend.app.main:app --reload
+```
 
-### Fase 4: Modelado
-- Entrenar un modelo de predicción para anticipar la calidad del aire a corto plazo.  
-- Validar el modelo con backtesting.  
+## 1. Pipeline de datos
 
-### Fase 5: Backend
-- Implementar un servidor con FastAPI.  
-- Crear endpoints para exponer datos, predicciones y recomendaciones.  
+El script `runner_air_planner.data_pipeline.ingest_madrid_air` descarga el dataset «Calidad del aire. Datos en tiempo real» del portal de datos abiertos de Madrid y lo normaliza a CSV.
 
-### Fase 6: Frontend
-- Construir un prototipo con Streamlit.  
-- Mostrar un mapa con estaciones, predicciones y recomendaciones.  
+```bash
+PYTHONPATH=src python -m runner_air_planner.data_pipeline.ingest_madrid_air --output data/madrid_air_quality_raw.csv
+```
 
-### Fase 7: Documentación y despliegue
-- Mejorar README y documentación técnica.  
-- Desplegar la aplicación en un servicio en la nube gratutito.  
+- El fichero resultante contiene columnas `station_code`, `pollutant`, `measurement_time`, `value`, `unit` e `is_valid`.
+- Puedes ejecutar el script periódicamente (cron, Airflow, etc.) para mantener actualizado el dataset.
 
----
+## 2. Modelo de *machine learning*
 
-## Estado actual
-📌 Proyecto en fase inicial. Este repositorio servirá como base para organizar el desarrollo en las próximas semanas.
+El backend entrena automáticamente un modelo de clustering KMeans a partir del CSV generado en el paso anterior. El modelo agrupa las mediciones por estación usando contaminantes como NO₂, O₃ o PM₂.₅ y asigna etiquetas cualitativas (`Excelente`, `Precaución moderada`, etc.) según la severidad del cluster.
+
+Adicionalmente, se integra la API pública de [Open-Meteo](https://open-meteo.com/) para recuperar las condiciones meteorológicas actuales en Madrid (temperatura, humedad relativa y velocidad del viento). El endpoint `/weather` expone esta información para que el frontend pueda enriquecer las recomendaciones.
+
+Características clave:
+
+- Los valores faltantes se rellenan con medias por contaminante.
+- El número máximo de clusters es 3 para mantener interpretabilidad (se reduce automáticamente si hay menos muestras).
+- Cada cluster se etiqueta de manera ordenada por la suma de los centroides (cuanto mayor concentración, más restrictivo).
+
+## 3. Backend FastAPI
+
+Arranca la API después de generar el CSV:
+
+```bash
+PYTHONPATH=src uvicorn runner_air_planner.backend.app.main:app --reload
+```
+
+Endpoints principales:
+
+- `GET /health`: estado del modelo (número de muestras, features disponibles).
+- `GET /predictions`: lista de estaciones con el cluster asignado, etiqueta y valores de contaminantes.
+- `GET /stations`: estaciones disponibles y fecha de la última medición.
+
+## 4. Frontend en Streamlit
+
+El panel Streamlit consume los endpoints `/predictions` y `/weather`, mostrando tanto las recomendaciones de calidad del aire como un resumen de la meteorología en tiempo real.
+
+```bash
+streamlit run src/runner_air_planner/frontend/streamlit_app.py
+```
+
+En la barra lateral puedes indicar la URL del backend (por defecto `http://localhost:8000`). El botón «Actualizar» fuerza la recarga de datos almacenados en caché.
+
+## Integración continua
+
+El workflow `.github/workflows/ci.yml` instala las dependencias y ejecuta `python -m compileall` sobre los módulos principales para garantizar que no hay errores de sintaxis.
+
+## Próximos pasos sugeridos
+
+- Persistir históricos de predicciones y generar visualizaciones temporales.
+- Añadir meteorología como segunda fuente de datos y enriquecer el modelo.
+- Publicar la API y el panel en un servicio gestionado (Railway, Render, Streamlit Cloud, etc.).
