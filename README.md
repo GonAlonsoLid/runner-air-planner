@@ -1,57 +1,78 @@
-# Runner’s Clean Air Planner
+# Runner Air Planner
 
-## Descripción
-**Runner’s Clean Air Planner** es una aplicación web que ayuda a corredores urbanos y personas activas a elegir las mejores horas para entrenar al aire libre en la ciudad.  
-La herramienta combina datos abiertos de **calidad del aire** y **meteorología** con un modelo de *machine learning* que predice cómo evolucionarán estas variables en las próximas horas.  
-A partir de esa predicción, la aplicación recomienda de forma personalizada las franjas horarias más adecuadas para correr, teniendo en cuenta preferencias del usuario como duración del entreno, temperatura máxima aceptable, viento o lluvia.
+Aplicación integral para descargar datos abiertos de calidad del aire en Madrid, entrenar un modelo de riesgo sencillo y exponerlo mediante un backend FastAPI y una interfaz Streamlit.
 
----
+## Estructura del repositorio
 
-## Objetivos principales
-1. Reunir y almacenar datos abiertos de calidad del aire y meteorología.  
-2. Desarrollar un modelo de *machine learning* que prediga la evolución del índice de calidad del aire (AQI) en un horizonte de 1 a 6 horas.  
-3. Implementar un sistema de recomendación que combine predicciones y preferencias del usuario.  
-4. Construir una interfaz web sencilla e intuitiva que muestre la información de forma clara y práctica.  
+```
+runner-air-planner/
+├─ README.md
+├─ requirements.txt
+├─ data/                   # salidas CSV (se crea en runtime)
+│  └─ .gitkeep
+├─ data_pipeline/
+│  ├─ __init__.py
+│  └─ ingest_madrid_air.py   # script de ingesta
+├─ backend/
+│  └─ app/
+│     ├─ __init__.py
+│     ├─ main.py             # FastAPI (endpoints)
+│     ├─ model.py            # Modelo ML ligero
+│     └─ storage.py          # helpers carga CSV
+├─ frontend/
+│  ├─ __init__.py
+│  └─ streamlit_app.py       # UI rápida
+└─ .github/
+   └─ workflows/
+      └─ ci.yml              # pipeline de CI (pytest)
+```
 
-## Público objetivo
-- Corredores urbanos y deportistas amateurs.  
-- Ciudadanos que quieran elegir el mejor momento para pasear, ir en bici o hacer actividades al aire libre.  
-- Estudiantes y profesionales que busquen un caso práctico de uso de datos abiertos y *machine learning*.  
+## Ingesta de datos
 
----
+El script `data_pipeline/ingest_madrid_air.py` descarga el dataset de **calidad del aire en tiempo real** publicado por el Ayuntamiento de Madrid, lo normaliza y lo almacena en `data/madrid_air_quality.csv`.
 
-## Plan inicial de trabajo
+```bash
+python -m data_pipeline.ingest_madrid_air
+```
 
-### Fase 1: Preparación
-- Crear el repositorio en GitHub.  
-- Configurar el entorno de desarrollo y dependencias básicas.  
+## Backend FastAPI
 
-### Fase 2: Ingesta de datos
-- Conectar con APIs de calidad del aire (red municipal de Madrid u OpenAQ).  
-- Incorporar datos meteorológicos (Open-Meteo).  
-- Guardar la información en una base de datos ligera (SQLite).  
+El backend expone tres endpoints principales:
 
-### Fase 3: Análisis y features
-- Explorar el comportamiento histórico de la calidad del aire.  
-- Construir variables (lags, medias móviles, interacciones con meteorología).  
+- `GET /health`: comprobación rápida.
+- `GET /measurements?limit=100`: últimas mediciones del CSV.
+- `POST /predict`: recibe `{ "value": <float> }` y devuelve la probabilidad de que la calidad sea "poor" junto a la etiqueta.
 
-### Fase 4: Modelado
-- Entrenar un modelo de predicción para anticipar la calidad del aire a corto plazo.  
-- Validar el modelo con backtesting.  
+Para ejecutarlo de forma local:
 
-### Fase 5: Backend
-- Implementar un servidor con FastAPI.  
-- Crear endpoints para exponer datos, predicciones y recomendaciones.  
+```bash
+uvicorn backend.app.main:app --reload
+```
 
-### Fase 6: Frontend
-- Construir un prototipo con Streamlit.  
-- Mostrar un mapa con estaciones, predicciones y recomendaciones.  
+## Modelo de machine learning
 
-### Fase 7: Documentación y despliegue
-- Mejorar README y documentación técnica.  
-- Desplegar la aplicación en un servicio en la nube gratutito.  
+Se entrena automáticamente al iniciar el backend utilizando las mediciones disponibles. Implementa una regresión logística unidimensional sobre el valor de la medición para estimar la probabilidad de calidad del aire "mala" (`poor`). Si el dataset aún no contiene suficientes ejemplos, el modelo aplica una regla de umbral configurable.
 
----
+## Frontend en Streamlit
 
-## Estado actual
-📌 Proyecto en fase inicial. Este repositorio servirá como base para organizar el desarrollo en las próximas semanas.
+La aplicación de Streamlit (`frontend/streamlit_app.py`) carga el CSV generado por la ingesta, muestra las últimas observaciones y permite introducir un valor para obtener una predicción instantánea.
+
+```bash
+streamlit run frontend/streamlit_app.py
+```
+
+## Dependencias y entorno
+
+Instala las dependencias de desarrollo con:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Pruebas
+
+```bash
+PYTHONPATH=. pytest
+```
