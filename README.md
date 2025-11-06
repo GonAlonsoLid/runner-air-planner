@@ -55,3 +55,58 @@ A partir de esa predicción, la aplicación recomienda de forma personalizada la
 
 ## Estado actual
 📌 Proyecto en fase inicial. Este repositorio servirá como base para organizar el desarrollo en las próximas semanas.
+
+---
+
+## Estructura del proyecto
+
+La primera iteración del proyecto ya incluye una estructura mínima en Python para descargar y almacenar los datos de calidad del aire de Madrid.
+
+```
+runner-air-planner/
+├── configs/                     # Plantillas de configuración (Toml)
+├── data/
+│   ├── raw/                     # Descargas en bruto desde las APIs
+│   ├── interim/
+│   └── processed/
+├── scripts/                     # Scripts ejecutables desde la línea de comandos
+├── src/runner_air_planner/      # Código fuente del paquete principal
+│   ├── config.py                # Gestión centralizada de configuración
+│   ├── data_sources/madrid_air.py
+│   ├── storage/local.py
+│   └── workflows/fetch_latest_air_quality.py
+├── tests/                       # Pruebas automatizadas (pytest)
+└── pyproject.toml               # Dependencias y metadatos del paquete
+```
+
+### Dependencias principales
+
+La base del proyecto utiliza únicamente la biblioteca estándar de Python, por lo que no es necesario instalar paquetes externos para ejecutar el flujo de descarga o las pruebas unitarias. Basta con tener Python 3.11 (o superior) disponible y exportar el `PYTHONPATH` al directorio `src` cuando se ejecuten comandos manualmente:
+
+```bash
+export PYTHONPATH="$(pwd)/src"
+```
+
+### Configuración
+
+1. Copia el archivo de ejemplo `configs/settings.example.toml` a un nuevo `configs/settings.toml` y ajusta los parámetros si lo necesitas (por ejemplo para trabajar con otro conjunto de datos o cambiar la carpeta de descargas).
+2. Opcionalmente, crea un archivo `.env` en la raíz para sobreescribir variables puntuales. Todas las claves utilizan el prefijo `RAP_`.
+
+### Descarga de datos en bruto
+
+El script `scripts/fetch_air_quality.py` coordina la descarga y almacenamiento de los datos en bruto del portal de datos abiertos de Madrid.
+
+```bash
+python scripts/fetch_air_quality.py --params station=28079004 magnitud=NO2
+```
+
+El comando anterior guardará un archivo JSON con marca temporal en `data/raw/` y mostrará la ruta en pantalla. Si el portal ofreciera filtros compatibles (estación, magnitud, etc.), pueden añadirse mediante `--params` con la sintaxis `clave=valor`.
+
+> ⚠️ Algunos recursos del portal de datos de Madrid requieren cabeceras o credenciales específicas y pueden devolver `403 Forbidden` desde entornos sin navegador. El cliente incorporado implementa manejadores de error y registrará el mensaje en caso de fallo para ayudar al diagnóstico.
+
+### Próximos pasos sugeridos
+
+1. Automatizar la ingesta periódica y almacenar históricos.
+2. Integrar una segunda fuente meteorológica (Open-Meteo) y unificar los esquemas.
+3. Definir un pipeline de features y experimentación para el modelo de predicción.
+4. Levantar la API (FastAPI) y el prototipo de interfaz (Streamlit) descritos en el plan inicial.
