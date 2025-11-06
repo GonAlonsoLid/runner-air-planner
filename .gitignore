@@ -9,7 +9,11 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
 # Data artifacts
-/data/*.csv
-/data/*.json
+data/*.csv
+data/*.json
+!data/.gitkeep
+
+# Development helpers
 /notebooks/
