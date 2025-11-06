@@ -1,102 +1,78 @@
 # Runner Air Planner
 
-Aplicación de ejemplo que combina datos abiertos de calidad del aire en Madrid con un modelo de *machine learning* ligero para recomendar cuándo salir a correr. El proyecto está dividido en tres capas: un pipeline de ingesta de datos, un backend en FastAPI que entrena el modelo y expone endpoints, y un panel en Streamlit que consume dichas predicciones.
+Aplicación integral para descargar datos abiertos de calidad del aire en Madrid, entrenar un modelo de riesgo sencillo y exponerlo mediante un backend FastAPI y una interfaz Streamlit.
 
 ## Estructura del repositorio
 
 ```
 runner-air-planner/
-├── README.md
-├── requirements.txt
-├── data/
-│   └── .gitkeep
-├── data_pipeline/
-│   ├── __init__.py
-│   └── ingest_madrid_air.py      # Descarga y normalización de datos abiertos
-├── backend/
-│   └── app/
-│       ├── __init__.py
-│       ├── main.py               # API FastAPI con el modelo KMeans
-│       └── storage.py            # Utilidades de carga y pivoteado de CSV
-├── frontend/
-│   └── streamlit_app.py          # Panel interactivo
-└── .github/
-    └── workflows/
-        └── ci.yml                # Workflow de integración continua
+├─ README.md
+├─ requirements.txt
+├─ data/                   # salidas CSV (se crea en runtime)
+│  └─ .gitkeep
+├─ data_pipeline/
+│  ├─ __init__.py
+│  └─ ingest_madrid_air.py   # script de ingesta
+├─ backend/
+│  └─ app/
+│     ├─ __init__.py
+│     ├─ main.py             # FastAPI (endpoints)
+│     ├─ model.py            # Modelo ML ligero
+│     └─ storage.py          # helpers carga CSV
+├─ frontend/
+│  ├─ __init__.py
+│  └─ streamlit_app.py       # UI rápida
+└─ .github/
+   └─ workflows/
+      └─ ci.yml              # pipeline de CI (pytest)
 ```
 
-## Requisitos
+## Ingesta de datos
 
-- Python 3.11 o superior
-- Las dependencias listadas en `requirements.txt`
-
-Instalación rápida:
+El script `data_pipeline/ingest_madrid_air.py` descarga el dataset de **calidad del aire en tiempo real** publicado por el Ayuntamiento de Madrid, lo normaliza y lo almacena en `data/madrid_air_quality.csv`.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+python -m data_pipeline.ingest_madrid_air
 ```
 
-Si prefieres Poetry, el repositorio incluye un `pyproject.toml` con `package-mode = false` para evitar el error
-`No file/folder found for package runner-air-planner`. Puedes instalar las dependencias con:
+## Backend FastAPI
 
-```bash
-poetry install
-poetry run uvicorn backend.app.main:app --reload
-```
+El backend expone tres endpoints principales:
 
-## 1. Pipeline de datos
+- `GET /health`: comprobación rápida.
+- `GET /measurements?limit=100`: últimas mediciones del CSV.
+- `POST /predict`: recibe `{ "value": <float> }` y devuelve la probabilidad de que la calidad sea "poor" junto a la etiqueta.
 
-El script `data_pipeline/ingest_madrid_air.py` descarga el dataset «Calidad del aire. Datos en tiempo real» del portal de datos abiertos de Madrid y lo normaliza a CSV.
-
-```bash
-python data_pipeline/ingest_madrid_air.py --output data/madrid_air_quality_raw.csv
-```
-
-- El fichero resultante contiene columnas `station_code`, `pollutant`, `measurement_time`, `value`, `unit` e `is_valid`.
-- Puedes ejecutar el script periódicamente (cron, Airflow, etc.) para mantener actualizado el dataset.
-
-## 2. Modelo de *machine learning*
-
-El backend entrena automáticamente un modelo de clustering KMeans a partir del CSV generado en el paso anterior. El modelo agrupa las mediciones por estación usando contaminantes como NO₂, O₃ o PM₂.₅ y asigna etiquetas cualitativas (`Excelente`, `Precaución moderada`, etc.) según la severidad del cluster.
-
-Características clave:
-
-- Los valores faltantes se rellenan con medias por contaminante.
-- El número máximo de clusters es 3 para mantener interpretabilidad (se reduce automáticamente si hay menos muestras).
-- Cada cluster se etiqueta de manera ordenada por la suma de los centroides (cuanto mayor concentración, más restrictivo).
-
-## 3. Backend FastAPI
-
-Arranca la API después de generar el CSV:
+Para ejecutarlo de forma local:
 
 ```bash
 uvicorn backend.app.main:app --reload
 ```
 
-Endpoints principales:
+## Modelo de machine learning
 
-- `GET /health`: estado del modelo (número de muestras, features disponibles).
-- `GET /predictions`: lista de estaciones con el cluster asignado, etiqueta y valores de contaminantes.
-- `GET /stations`: estaciones disponibles y fecha de la última medición.
+Se entrena automáticamente al iniciar el backend utilizando las mediciones disponibles. Implementa una regresión logística unidimensional sobre el valor de la medición para estimar la probabilidad de calidad del aire "mala" (`poor`). Si el dataset aún no contiene suficientes ejemplos, el modelo aplica una regla de umbral configurable.
 
-## 4. Frontend en Streamlit
+## Frontend en Streamlit
 
-El panel Streamlit consume el endpoint `/predictions` y muestra las recomendaciones en una tabla interactiva y paneles desplegables.
+La aplicación de Streamlit (`frontend/streamlit_app.py`) carga el CSV generado por la ingesta, muestra las últimas observaciones y permite introducir un valor para obtener una predicción instantánea.
 
 ```bash
 streamlit run frontend/streamlit_app.py
 ```
 
-En la barra lateral puedes indicar la URL del backend (por defecto `http://localhost:8000`). El botón «Actualizar» fuerza la recarga de datos almacenados en caché.
+## Dependencias y entorno
 
-## Integración continua
+Instala las dependencias de desarrollo con:
 
-El workflow `.github/workflows/ci.yml` instala las dependencias y ejecuta `python -m compileall` sobre los módulos principales para garantizar que no hay errores de sintaxis.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Próximos pasos sugeridos
+## Pruebas
 
-- Persistir históricos de predicciones y generar visualizaciones temporales.
-- Añadir meteorología como segunda fuente de datos y enriquecer el modelo.
-- Publicar la API y el panel en un servicio gestionado (Railway, Render, Streamlit Cloud, etc.).
+```bash
+PYTHONPATH=. pytest
+```
