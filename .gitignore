@@ -10,10 +10,6 @@ __pycache__/
 .vscode/
 .idea/
 # Data artifacts
-/data/raw/*.json
-/data/raw/*.csv
-/data/interim/*
-!/data/interim/.gitkeep
-/data/processed/*
-!/data/processed/.gitkeep
+/data/*.csv
+/data/*.json
 /notebooks/

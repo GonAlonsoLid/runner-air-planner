@@ -1,6 +1,0 @@
-[air_quality]
-base_url = "https://datos.madrid.es/egob/catalogo/"
-dataset_id = "210227-0-calidad-aire-tiempo-real"
-format = "json"
-[storage]
-raw_data_dir = "data/raw"
