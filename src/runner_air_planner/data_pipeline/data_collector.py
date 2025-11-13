@@ -84,6 +84,48 @@ class DataCollector:
                 return self._cached_weather
             raise
 
+    def get_weather_forecast(self, *, force_refresh: bool = False) -> weather.WeatherForecast:
+        """Get 1-hour ahead weather forecast for ML predictions.
+        
+        Args:
+            force_refresh: Force refresh even if cache is valid
+            
+        Returns:
+            WeatherForecast with 1-hour ahead predictions
+        """
+        try:
+            forecast = self._weather_client.fetch_1hour_forecast()
+            return forecast
+        except weather.WeatherServiceError as e:
+            # If forecast fails, use current weather as fallback
+            try:
+                current = self.get_weather_data(force_refresh=force_refresh)
+                # Convert WeatherReport to WeatherForecast-like object
+                return weather.WeatherForecast(
+                    forecast_time=datetime.now() + timedelta(hours=1),
+                    temperature_c=current.temperature_c,
+                    relative_humidity=current.relative_humidity,
+                    wind_speed_kmh=current.wind_speed_kmh,
+                    weather_code=current.weather_code,
+                    weather_description=current.weather_description,
+                    precipitation_mm=getattr(current, 'precipitation_mm', None),
+                    cloud_cover=getattr(current, 'cloud_cover', None),
+                    probability_precipitation=None,
+                )
+            except Exception:
+                # If everything fails, return a minimal forecast
+                return weather.WeatherForecast(
+                    forecast_time=datetime.now() + timedelta(hours=1),
+                    temperature_c=None,
+                    relative_humidity=None,
+                    wind_speed_kmh=None,
+                    weather_code=None,
+                    weather_description=None,
+                    precipitation_mm=None,
+                    cloud_cover=None,
+                    probability_precipitation=None,
+                )
+
     def create_ml_dataset(
         self,
         *,
@@ -232,8 +274,18 @@ class DataCollector:
                 ml_df["weather_precipitation_mm"] = getattr(weather_data, 'precipitation_mm', None)
                 ml_df["weather_cloud_cover"] = getattr(weather_data, 'cloud_cover', None)
 
-        # Create derived/synergy features
+        # Create derived/synergy features (including precipitation features)
         ml_df = self._create_synergy_features(ml_df)
+        
+        # Ensure precipitation features exist even if weather data doesn't have them
+        if "weather_precipitation_mm" not in ml_df.columns:
+            ml_df["weather_precipitation_mm"] = 0
+        if "weather_precipitation_probability" not in ml_df.columns:
+            ml_df["weather_precipitation_probability"] = 0
+        if "precipitation_risk" not in ml_df.columns:
+            ml_df["precipitation_risk"] = 0
+        if "high_precipitation_risk" not in ml_df.columns:
+            ml_df["high_precipitation_risk"] = 0
 
         # Ensure critical pollutant columns exist (fill with NaN if missing)
         critical_pollutants = ["no2", "o3", "pm10", "pm25", "no", "nox", "so2", "co"]

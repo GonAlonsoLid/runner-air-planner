@@ -80,6 +80,79 @@ class WeatherClient:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self._session = session or requests.Session()
 
+    def fetch_weather_for_location(
+        self,
+        latitude: float,
+        longitude: float,
+        *,
+        timeout: int = DEFAULT_TIMEOUT,
+    ) -> WeatherForecast:
+        """Fetch 1-hour ahead weather forecast for a specific location.
+        
+        Args:
+            latitude: Latitude of the location
+            longitude: Longitude of the location
+            timeout: Request timeout in seconds
+            
+        Returns:
+            WeatherForecast with 1-hour ahead predictions
+        """
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": TIMEZONE,
+            "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,precipitation,cloud_cover,precipitation_probability",
+            "forecast_hours": 1,
+        }
+        
+        try:
+            response = self._session.get(WEATHER_API_URL, params=params, timeout=timeout)
+            response.raise_for_status()
+        except requests.RequestException as error:
+            raise WeatherServiceError(f"No se pudo consultar la predicción meteorológica para {latitude},{longitude}") from error
+
+        payload = response.json()
+        hourly = payload.get("hourly")
+        if not isinstance(hourly, dict):
+            raise WeatherServiceError("Respuesta inesperada del servicio meteorológico")
+
+        times = hourly.get("time", [])
+        if not times or len(times) == 0:
+            raise WeatherServiceError("No hay datos de predicción disponibles")
+        
+        forecast_datetime = self._parse_datetime(times[0])
+        if forecast_datetime is None:
+            raise WeatherServiceError("No se pudo parsear la hora de predicción")
+
+        temperatures = hourly.get("temperature_2m", [])
+        humidities = hourly.get("relative_humidity_2m", [])
+        wind_speeds = hourly.get("wind_speed_10m", [])
+        weather_codes = hourly.get("weather_code", [])
+        precipitations = hourly.get("precipitation", [])
+        cloud_covers = hourly.get("cloud_cover", [])
+        precip_probs = hourly.get("precipitation_probability", [])
+
+        temperature = _coerce_float(temperatures[0] if len(temperatures) > 0 else None)
+        humidity = _coerce_float(humidities[0] if len(humidities) > 0 else None)
+        wind_speed = _coerce_float(wind_speeds[0] if len(wind_speeds) > 0 else None)
+        code = _coerce_int(weather_codes[0] if len(weather_codes) > 0 else None)
+        description = WEATHER_CODE_DESCRIPTIONS.get(code) if code is not None else None
+        precipitation = _coerce_float(precipitations[0] if len(precipitations) > 0 else None)
+        cloud_cover = _coerce_int(cloud_covers[0] if len(cloud_covers) > 0 else None)
+        precip_prob = _coerce_int(precip_probs[0] if len(precip_probs) > 0 else None)
+
+        return WeatherForecast(
+            forecast_time=forecast_datetime,
+            temperature_c=temperature,
+            relative_humidity=humidity,
+            wind_speed_kmh=wind_speed,
+            weather_code=code,
+            weather_description=description,
+            precipitation_mm=precipitation,
+            cloud_cover=cloud_cover,
+            probability_precipitation=precip_prob,
+        )
+
     def fetch_current_weather(self, *, timeout: int = DEFAULT_TIMEOUT) -> WeatherReport:
         """Fetch current weather conditions for Madrid.
         
