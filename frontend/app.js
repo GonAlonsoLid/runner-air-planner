@@ -155,7 +155,7 @@ async function runPredictions() {
     showLoading();
     
     try {
-        const useRealtime = currentData && currentData.timestamp;
+        const useRealtime = !!(currentData && currentData.timestamp);
         const response = await fetch(`${API_BASE}/api/predict`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -466,6 +466,37 @@ function updateTopStations(predictions) {
         item.style.opacity = '0';
         item.style.animation = 'fadeInUp 0.5s ease forwards';
         
+        const explanation = station.explanation || {};
+        const reasons = explanation.reasons || [];
+        const warnings = explanation.warnings || [];
+        const summary = explanation.summary || '';
+        
+        // Crear HTML de explicación
+        let explanationHTML = '';
+        if (reasons.length > 0 || warnings.length > 0 || summary) {
+            explanationHTML = `
+                <div class="station-explanation" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.1);">
+                    ${summary ? `<div style="color: #a1a1aa; font-size: 0.85rem; margin-bottom: 0.5rem; font-style: italic;">${summary}</div>` : ''}
+                    ${reasons.length > 0 ? `
+                        <div style="margin-bottom: 0.5rem;">
+                            <div style="color: #10b981; font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem;">✅ Ventajas:</div>
+                            <ul style="margin: 0; padding-left: 1.25rem; color: #d1d5db; font-size: 0.8rem; line-height: 1.5;">
+                                ${reasons.map(r => `<li>${r}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    ${warnings.length > 0 ? `
+                        <div>
+                            <div style="color: #ef4444; font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem;">⚠️ Consideraciones:</div>
+                            <ul style="margin: 0; padding-left: 1.25rem; color: #fca5a5; font-size: 0.8rem; line-height: 1.5;">
+                                ${warnings.map(w => `<li>${w}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
         item.innerHTML = `
             <div class="station-info">
                 <div class="station-name">${station.station_name}</div>
@@ -473,8 +504,10 @@ function updateTopStations(predictions) {
             </div>
             <div class="station-stats">
                 <div class="station-stat">
-                    <div class="station-stat-value">${(station.prob_good * 100).toFixed(0)}%</div>
-                    <div class="station-stat-label">Probabilidad</div>
+                    <div class="station-stat-value" style="color: ${getScoreColor(station.running_score || 0)}; font-weight: 700;">
+                        ${Math.round(station.running_score || 0)}
+                    </div>
+                    <div class="station-stat-label">Score</div>
                 </div>
                 <div class="station-stat">
                     <div class="station-stat-value">${station.aqi.toFixed(1)}</div>
@@ -484,11 +517,32 @@ function updateTopStations(predictions) {
                     ${station.is_good_to_run ? '✅' : '❌'}
                 </span>
             </div>
+            ${explanationHTML}
+            <div style="margin-top: 0.5rem; text-align: center;">
+                <button class="explanation-toggle" style="background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #a1a1aa; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;">
+                    ${explanationHTML ? '📊 Ver detalles' : ''}
+                </button>
+            </div>
         `;
         
-        item.addEventListener('click', () => {
-            map.setView([station.latitude, station.longitude], 14);
-            showToast(`Centrado en ${station.station_name}`, 'success');
+        // Toggle explicación
+        const toggleBtn = item.querySelector('.explanation-toggle');
+        const explanationDiv = item.querySelector('.station-explanation');
+        if (toggleBtn && explanationDiv) {
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isVisible = explanationDiv.style.display !== 'none';
+                explanationDiv.style.display = isVisible ? 'none' : 'block';
+                toggleBtn.textContent = isVisible ? '📊 Ver detalles' : '📊 Ocultar detalles';
+            });
+        }
+        
+        // Click en el item para centrar en el mapa
+        item.addEventListener('click', (e) => {
+            if (e.target !== toggleBtn && !toggleBtn.contains(e.target)) {
+                map.setView([station.latitude, station.longitude], 14);
+                showToast(`Centrado en ${station.station_name}`, 'success');
+            }
         });
         
         list.appendChild(item);
@@ -524,6 +578,15 @@ function animateValue(id, start, end, duration, decimals) {
 }
 
 // Helper Functions
+function getScoreColor(score) {
+    // Color basado en el score: verde (alto) -> amarillo (medio) -> rojo (bajo)
+    if (score >= 80) return '#10b981'; // Verde - Excelente
+    if (score >= 60) return '#84cc16'; // Verde claro - Bueno
+    if (score >= 40) return '#eab308'; // Amarillo - Moderado
+    if (score >= 20) return '#f59e0b'; // Naranja - Regular
+    return '#ef4444'; // Rojo - Malo
+}
+
 function getAqiColor(aqi) {
     if (aqi <= 25) return '#10b981';
     if (aqi <= 50) return '#fbbf24';
