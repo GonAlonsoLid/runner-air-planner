@@ -1,107 +1,176 @@
-# Runner Air Planner
+# Runner Air Planner - ML Model Data Pipeline
 
-Aplicación de ejemplo que combina datos abiertos de calidad del aire en Madrid con un modelo de *machine learning* ligero para recomendar cuándo salir a correr. El proyecto está dividido en tres capas: un pipeline de ingesta de datos, un backend en FastAPI que entrena el modelo y expone endpoints, y un panel en Streamlit que consume dichas predicciones.
+Pipeline de datos y modelo de Machine Learning que predice el mejor momento para salir a correr en Madrid basándose en la calidad del aire y condiciones meteorológicas.
 
-## Estructura del repositorio
+## 🎯 Objetivo
+
+Crear un dataset estructurado con **mínimo 1000 registros** y entrenar un modelo ML que combine:
+- **Calidad del aire** por estación (NO₂, O₃, PM10, PM2.5, etc.)
+- **Condiciones meteorológicas** (temperatura, humedad, viento)
+- **Features temporales** (hora, día semana, mes)
+- **Features de sinergia** (interacciones entre variables)
+
+## 🚀 Inicio Rápido con Docker
+
+### Levantar la aplicación
+
+```bash
+# Construir y levantar (primera vez)
+docker-compose up -d --build
+
+# Ver logs
+docker-compose logs -f
+
+# La app estará disponible en http://localhost:8501
+```
+
+### Comandos útiles
+
+```bash
+# Recopilar datos
+docker-compose exec app poetry run collect --accumulate
+
+# Entrenar modelo (cuando tengas 1000+ registros)
+docker-compose exec app poetry run train
+
+# Hacer predicciones
+docker-compose exec app poetry run predict
+
+# Abrir shell en el contenedor
+docker-compose exec app bash
+
+# Detener
+docker-compose down
+```
+
+### Desarrollo con hot-reload
+
+```bash
+docker-compose -f docker-compose.dev.yml up
+```
+
+## 📦 Instalación con Poetry (Local)
+
+```bash
+# Instalar Poetry
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Instalar dependencias
+poetry install
+
+# Activar entorno
+poetry shell
+```
+
+## 🏗️ Estructura del Proyecto
 
 ```
 runner-air-planner/
-├── README.md
-├── requirements.txt
-├── pyproject.toml
-├── data/
-│   └── .gitkeep
-├── src/
-│   └── runner_air_planner/
-│       ├── __init__.py
-│       ├── data_pipeline/
-│       │   └── ingest_madrid_air.py    # Descarga y normalización de datos abiertos
-│       ├── backend/
-│       │   └── app/
-│       │       ├── __init__.py
-│       │       ├── main.py             # API FastAPI con el modelo KMeans
-│       │       └── storage.py          # Utilidades de carga y pivoteado de CSV
-│       └── frontend/
-│           └── streamlit_app.py        # Panel interactivo
-└── .github/
-    └── workflows/
-        └── ci.yml                      # Workflow de integración continua
+├── src/runner_air_planner/
+│   ├── data_pipeline/          # Pipeline de datos para ML
+│   │   ├── ingest_madrid_air.py    # Descarga datos calidad aire
+│   │   ├── weather.py              # Cliente Open-Meteo
+│   │   ├── master_data.py          # Datos maestros
+│   │   ├── data_collector.py       # Clase principal que integra todo
+│   │   ├── accumulate_data.py      # Acumulación de datos históricos
+│   │   └── cli_collect.py          # CLI para recopilar datos
+│   ├── ml/                      # Modelos de Machine Learning
+│   │   ├── model.py                # Definición del modelo
+│   │   ├── train.py                # Entrenamiento
+│   │   └── predict.py              # Predicciones
+│   └── frontend/                # Interfaz de usuario
+│       └── streamlit_app.py        # Dashboard Streamlit
+├── scripts/
+│   └── collect_multiple_days.py
+├── data/                           # Datasets y modelos
+│   ├── ml_dataset_accumulated.csv
+│   └── models/
+├── Dockerfile
+├── docker-compose.yml
+└── pyproject.toml                  # Gestión con Poetry
 ```
 
-## Requisitos
+## 📊 Uso
 
-- Python 3.11 o superior
-- Las dependencias listadas en `requirements.txt`
-
-Instalación rápida:
+### 1. Recopilar datos
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+# Con Docker
+docker-compose exec app poetry run collect --accumulate
+
+# Con Poetry local
+poetry run collect --accumulate
 ```
 
-Si prefieres Poetry, el repositorio usa una estructura estándar `src/` que funciona correctamente con el modo por defecto de empaquetado.
-Puedes instalar las dependencias y trabajar en modo aislado con:
+### 2. Acumular hasta 1000+ registros
+
+La API de Madrid solo devuelve datos del día actual (~300-400 registros). Para alcanzar 1000+:
 
 ```bash
-poetry install
-poetry run uvicorn runner_air_planner.backend.app.main:app --reload
+# Ejecutar varias veces (cada 1-2 horas)
+docker-compose exec app poetry run collect --accumulate
+
+# O automático
+python scripts/collect_multiple_days.py --min-records 1000 --interval-hours 1
 ```
 
-## 1. Pipeline de datos
-
-El script `runner_air_planner.data_pipeline.ingest_madrid_air` descarga el dataset «Calidad del aire. Datos en tiempo real» del portal de datos abiertos de Madrid y lo normaliza a CSV.
+### 3. Entrenar modelo
 
 ```bash
-PYTHONPATH=src python -m runner_air_planner.data_pipeline.ingest_madrid_air --output data/madrid_air_quality_raw.csv
+docker-compose exec app poetry run train
 ```
 
-- El fichero resultante contiene columnas `station_code`, `pollutant`, `measurement_time`, `value`, `unit` e `is_valid`.
-- Puedes ejecutar el script periódicamente (cron, Airflow, etc.) para mantener actualizado el dataset.
-
-## 2. Modelo de *machine learning*
-
-El backend entrena automáticamente un modelo de clustering KMeans a partir del CSV generado en el paso anterior. El modelo agrupa las mediciones por estación usando contaminantes como NO₂, O₃ o PM₂.₅ y asigna etiquetas cualitativas (`Excelente`, `Precaución moderada`, etc.) según la severidad del cluster.
-
-Adicionalmente, se integra la API pública de [Open-Meteo](https://open-meteo.com/) para recuperar las condiciones meteorológicas actuales en Madrid (temperatura, humedad relativa y velocidad del viento). El endpoint `/weather` expone esta información para que el frontend pueda enriquecer las recomendaciones.
-
-Características clave:
-
-- Los valores faltantes se rellenan con medias por contaminante.
-- El número máximo de clusters es 3 para mantener interpretabilidad (se reduce automáticamente si hay menos muestras).
-- Cada cluster se etiqueta de manera ordenada por la suma de los centroides (cuanto mayor concentración, más restrictivo).
-
-## 3. Backend FastAPI
-
-Arranca la API después de generar el CSV:
+### 4. Hacer predicciones
 
 ```bash
-PYTHONPATH=src uvicorn runner_air_planner.backend.app.main:app --reload
+docker-compose exec app poetry run predict
 ```
 
-Endpoints principales:
+### 5. Visualizar en Frontend
 
-- `GET /health`: estado del modelo (número de muestras, features disponibles).
-- `GET /predictions`: lista de estaciones con el cluster asignado, etiqueta y valores de contaminantes.
-- `GET /stations`: estaciones disponibles y fecha de la última medición.
-
-## 4. Frontend en Streamlit
-
-El panel Streamlit consume los endpoints `/predictions` y `/weather`, mostrando tanto las recomendaciones de calidad del aire como un resumen de la meteorología en tiempo real.
+Abre http://localhost:8501 en tu navegador (si usas Docker) o:
 
 ```bash
-streamlit run src/runner_air_planner/frontend/streamlit_app.py
+poetry run streamlit run src/runner_air_planner/frontend/streamlit_app.py
 ```
 
-En la barra lateral puedes indicar la URL del backend (por defecto `http://localhost:8000`). El botón «Actualizar» fuerza la recarga de datos almacenados en caché.
+## 📈 Dataset para ML
 
-## Integración continua
+El dataset final (`ml_dataset_accumulated.csv`) contiene **~42 features**:
 
-El workflow `.github/workflows/ci.yml` instala las dependencias y ejecuta `python -m compileall` sobre los módulos principales para garantizar que no hay errores de sintaxis.
+- **Contaminantes**: `no2`, `o3`, `pm10`, `pm25`, `no`, `nox`, `so2`, `co`
+- **Estación**: código, nombre, tipo (Tráfico/Suburbana), coordenadas
+- **Temporales**: hora, día semana, mes, `is_weekend`, `is_rush_hour`
+- **Meteorológicas**: temperatura, humedad, viento, código tiempo
+- **Sinergias**: `wind_*_synergy`, `temp_o3_synergy`, `air_quality_index`, etc.
 
-## Próximos pasos sugeridos
+## 🔌 APIs Utilizadas
 
-- Persistir históricos de predicciones y generar visualizaciones temporales.
-- Añadir meteorología como segunda fuente de datos y enriquecer el modelo.
-- Publicar la API y el panel en un servicio gestionado (Railway, Render, Streamlit Cloud, etc.).
+- **Calidad del Aire Madrid**: `https://datos.madrid.es/egob/catalogo/212531-12751102-calidad-aire-tiempo-real.json`
+- **Open-Meteo**: `https://api.open-meteo.com/v1/forecast` (gratuita, sin API key)
+
+## 📋 Requisitos
+
+- **Docker & Docker Compose** (recomendado)
+- O **Python 3.11+** y **Poetry** (para desarrollo local)
+
+## 📝 Notas
+
+- Los datos se acumulan automáticamente, eliminando duplicados
+- Por defecto se mantienen últimos 30 días de historial
+- El dataset se actualiza incrementalmente con cada ejecución
+- Los modelos entrenados se guardan en `data/models/`
+
+## 🛠️ Comandos Makefile
+
+```bash
+make up          # Levantar app
+make collect     # Recopilar datos
+make train       # Entrenar modelo
+make predict     # Hacer predicciones
+make logs        # Ver logs
+make shell       # Abrir shell
+make down        # Detener
+```
+
+Ver `QUICKSTART.md` para más detalles.

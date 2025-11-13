@@ -1,126 +1,155 @@
-"""Simple Streamlit dashboard to visualise Madrid air quality predictions."""
+"""Streamlit dashboard for Runner Air Planner predictions."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import requests
 import streamlit as st
 
-API_DEFAULT = "http://localhost:8000"
+# Add src to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+from runner_air_planner.data_pipeline import DataCollector, load_accumulated_dataset
+from runner_air_planner.ml.model import MODELS_DIR, RunningSuitabilityModel
 
 
-@st.cache_data(ttl=300)
-def fetch_predictions(api_url: str) -> list[dict[str, Any]]:
-    response = requests.get(f"{api_url.rstrip('/')}/predictions", timeout=20)
-    response.raise_for_status()
-    return response.json()
+@st.cache_data
+def load_dataset(path: Path) -> pd.DataFrame:
+    """Load ML dataset."""
+    return load_accumulated_dataset(path)
 
 
-@st.cache_data(ttl=600)
-def fetch_weather(api_url: str) -> dict[str, Any] | None:
-    response = requests.get(f"{api_url.rstrip('/')}/weather", timeout=20)
-    response.raise_for_status()
-    return response.json()
-
-
-def build_predictions_table(predictions: list[dict[str, Any]]) -> pd.DataFrame:
-    if not predictions:
-        return pd.DataFrame()
-    frame = pd.DataFrame(predictions)
-    frame["measurement_time"] = pd.to_datetime(frame["measurement_time"], errors="coerce")
-    pollutant_frame = frame["pollutants"].apply(pd.Series)
-    merged = pd.concat([frame.drop(columns=["pollutants"]), pollutant_frame], axis=1)
-    return merged.sort_values("measurement_time", ascending=False)
+@st.cache_resource
+def load_model(model_path: Path) -> RunningSuitabilityModel | None:
+    """Load trained model."""
+    if not model_path.exists():
+        return None
+    import pickle
+    with open(model_path, "rb") as f:
+        return pickle.load(f)
 
 
 def main() -> None:
-    st.set_page_config(page_title="Runner Air Planner", page_icon="🏃", layout="wide")
-    st.title("🏃‍♀️ Runner Air Planner")
-    st.write(
-        "Consulta la calidad del aire en Madrid en tiempo real y obtén una recomendación rápida "
-        "sobre si es buena idea salir a correr."
+    """Main Streamlit app."""
+    st.set_page_config(
+        page_title="Runner Air Planner",
+        page_icon="🏃",
+        layout="wide",
     )
-
-    api_url = st.sidebar.text_input("URL del backend", value=API_DEFAULT)
-    if st.sidebar.button("Actualizar"):
+    
+    st.title("🏃‍♀️ Runner Air Planner")
+    st.markdown(
+        "Predicciones de Machine Learning para determinar el mejor momento "
+        "para salir a correr en Madrid basándose en calidad del aire y condiciones meteorológicas."
+    )
+    
+    # Sidebar
+    st.sidebar.header("Configuración")
+    
+    dataset_path = st.sidebar.text_input(
+        "Ruta del dataset",
+        value="data/ml_dataset_accumulated.csv",
+    )
+    
+    model_path = st.sidebar.text_input(
+        "Ruta del modelo",
+        value=str(MODELS_DIR / "running_model.pkl"),
+    )
+    
+    if st.sidebar.button("🔄 Actualizar datos"):
         st.cache_data.clear()
-
-    weather_data: dict[str, Any] | None = None
+        st.cache_resource.clear()
+        st.rerun()
+    
+    # Load data
     try:
-        weather_data = fetch_weather(api_url)
-    except requests.RequestException as error:
-        st.warning("No se pudieron obtener los datos meteorológicos actuales.")
-        st.exception(error)
-
-    try:
-        predictions = fetch_predictions(api_url)
-    except requests.RequestException as error:
-        st.error(
-            "No se pudieron obtener predicciones del backend. Asegúrate de que el servicio FastAPI está en marcha."
-        )
-        st.exception(error)
+        df = load_dataset(Path(dataset_path))
+        if df.empty:
+            st.error("Dataset vacío. Ejecuta primero el pipeline de datos.")
+            return
+    except Exception as e:
+        st.error(f"Error cargando dataset: {e}")
         return
-
-    if not predictions:
-        st.info("Todavía no hay predicciones generadas. Ejecuta el pipeline de datos primero.")
-        return
-
-    if weather_data:
-        st.subheader("Condiciones meteorológicas actuales")
-        observed_at = weather_data.get("observed_at")
-        if isinstance(observed_at, str):
-            try:
-                observed_at = datetime.fromisoformat(observed_at)
-            except ValueError:
-                observed_at = None
-        columns = st.columns(3)
-        temperature = weather_data.get("temperature_c")
-        humidity = weather_data.get("relative_humidity")
-        wind_speed = weather_data.get("wind_speed_kmh")
-        with columns[0]:
-            st.metric("Temperatura", f"{temperature:.1f} °C" if temperature is not None else "N/D")
-        with columns[1]:
-            st.metric("Humedad", f"{humidity:.0f} %" if humidity is not None else "N/D")
-        with columns[2]:
-            st.metric("Viento", f"{wind_speed:.1f} km/h" if wind_speed is not None else "N/D")
-        description = weather_data.get("weather_description")
-        meta = []
-        if isinstance(observed_at, datetime):
-            meta.append(f"Actualizado: {observed_at.strftime('%Y-%m-%d %H:%M')}")
-        if description:
-            meta.append(description)
-        if meta:
-            st.caption(" · ".join(meta))
-
-    table = build_predictions_table(predictions)
-    st.subheader("Recomendaciones actuales")
-    st.dataframe(table, use_container_width=True)
-
-    st.subheader("Detalle por estación")
-    for _, row in table.iterrows():
-        station = row.get("station_code") or "Desconocido"
-        label = row.get("air_quality_label")
-        measurement_time = row.get("measurement_time")
-        if isinstance(measurement_time, pd.Timestamp):
-            measurement_time = measurement_time.to_pydatetime()
-        measurement_text = measurement_time.strftime("%Y-%m-%d %H:%M") if isinstance(measurement_time, datetime) else "N/A"
-        pollutants = {
-            key: value
-            for key, value in row.items()
-            if key not in {"station_code", "measurement_time", "cluster", "air_quality_label"}
-            and pd.notna(value)
-        }
-        with st.expander(f"Estación {station} - {label}"):
-            st.write(f"Medición: {measurement_text}")
-            st.metric("Cluster", int(row.get("cluster", 0)), help="Índice agrupado por el modelo KMeans")
-            if pollutants:
-                st.write(pd.DataFrame([pollutants]).T.rename(columns={0: "Concentración (µg/m³)"}))
+    
+    # Load model
+    model = load_model(Path(model_path))
+    
+    # Main content
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total registros", len(df))
+    with col2:
+        st.metric("Estaciones", df["station_code"].nunique())
+    with col3:
+        st.metric("Modelo cargado", "✅" if model else "❌")
+    
+    # Predictions if model available
+    if model:
+        st.subheader("🎯 Predicciones")
+        
+        try:
+            predictions = model.predict(df)
+            probabilities = model.predict_proba(df)
+            
+            df["prediction"] = predictions
+            df["prob_good"] = probabilities["prob_good"]
+            df["is_good_to_run"] = df["prediction"] == 1
+            
+            # Summary
+            good_count = predictions.sum()
+            st.success(f"✅ {good_count} de {len(df)} estaciones/momentos son buenos para correr ({good_count/len(df):.1%})")
+            
+            # Filter good predictions
+            good_df = df[df["is_good_to_run"]].copy()
+            
+            if not good_df.empty:
+                st.subheader("🏃 Mejores momentos para correr")
+                
+                # Sort by probability
+                good_df = good_df.sort_values("prob_good", ascending=False)
+                
+                # Display table
+                display_cols = [
+                    "station_name",
+                    "station_type",
+                    "measurement_time",
+                    "prob_good",
+                    "air_quality_index",
+                    "no2",
+                    "o3",
+                    "pm10",
+                    "weather_wind_speed_kmh",
+                    "weather_temperature_c",
+                ]
+                available_cols = [c for c in display_cols if c in good_df.columns]
+                st.dataframe(
+                    good_df[available_cols].head(20),
+                    use_container_width=True,
+                )
             else:
-                st.write("Sin datos de contaminantes disponibles para esta estación.")
+                st.warning("No hay momentos recomendados para correr según el modelo.")
+        
+        except Exception as e:
+            st.error(f"Error haciendo predicciones: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+    
+    else:
+        st.info(
+            "💡 Modelo no encontrado. Entrena el modelo primero:\n\n"
+            "```bash\n"
+            "PYTHONPATH=src python -m runner_air_planner.ml.train\n"
+            "```"
+        )
+    
+    # Raw data view
+    with st.expander("📊 Ver datos completos"):
+        st.dataframe(df, use_container_width=True)
 
 
-if __name__ == "__main__":  # pragma: no cover - Streamlit entry point
+if __name__ == "__main__":
     main()
+

@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: runner-air-planner-dev
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount everything for development
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+      - ./pyproject.toml:/app/pyproject.toml
+    environment:
+      - PYTHONPATH=/app/src
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    command: streamlit run src/runner_air_planner/frontend/streamlit_app.py --server.port=8501 --server.address=0.0.0.0 --server.fileWatcherType=poll --server.headless=true
+    stdin_open: true
+    tty: true

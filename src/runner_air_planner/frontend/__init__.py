@@ -1,3 +1,4 @@
-"""Frontend components for the Runner Air Planner dashboard."""
+"""Frontend components for Runner Air Planner."""
 
 __all__ = []
+
