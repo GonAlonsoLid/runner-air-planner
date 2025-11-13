@@ -53,11 +53,14 @@ class RunningSuitabilityModel:
         # Features temporales
         temporal_features = ["hour", "day_of_week", "month", "is_weekend", "is_rush_hour"]
         
-        # Features meteorológicas
+        # Features meteorológicas (usando predicción de 1 hora)
         weather_features = [
             "weather_temperature_c",
             "weather_humidity",
             "weather_wind_speed_kmh",
+            "weather_precipitation_mm",
+            "weather_cloud_cover",
+            "weather_precipitation_probability",
         ]
         
         # Features de sinergia
@@ -70,6 +73,7 @@ class RunningSuitabilityModel:
             "wind_weak",
             "temp_o3_synergy",
             "air_quality_index",
+            "precipitation_risk",  # Nueva feature basada en probabilidad de lluvia
         ]
         
         # Features de estación
@@ -117,10 +121,17 @@ class RunningSuitabilityModel:
                 threshold = thresholds.get(pollutant, 100)
                 target[df[pollutant] > threshold] = 0
         
-        # Penalizar mal tiempo
+        # Penalizar mal tiempo (usando predicción de 1 hora)
         if "weather_code" in df.columns:
             bad_weather = [61, 63, 65, 71, 73, 75, 80, 81, 82, 95, 96, 99]
             target[df["weather_code"].isin(bad_weather)] = 0
+        
+        # Penalizar alta probabilidad de lluvia (predicción 1h)
+        if "weather_precipitation_probability" in df.columns:
+            target[df["weather_precipitation_probability"] > 60] = 0
+        
+        if "weather_precipitation_mm" in df.columns:
+            target[df["weather_precipitation_mm"] > 2] = 0
         
         # Bonus por viento fuerte (dispersa contaminación)
         if "wind_strong" in df.columns:

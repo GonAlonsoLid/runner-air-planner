@@ -30,12 +30,12 @@ COPY scripts/ ./scripts/
 # Create data directories (will be mounted as volumes)
 RUN mkdir -p data/models data/raw data/interim data/processed
 
-# Expose Streamlit port
-EXPOSE 8501
+# Expose API port
+EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Default command: run Streamlit app
-CMD ["streamlit", "run", "src/runner_air_planner/frontend/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Default command: run FastAPI app
+CMD ["uvicorn", "runner_air_planner.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

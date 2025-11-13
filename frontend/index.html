@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runner Air Planner</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-content">
+            <div class="nav-brand">
+                <span class="brand-icon">🏃</span>
+                <span class="brand-text">Runner Air</span>
+            </div>
+            <div class="nav-actions">
+                <button id="btn-update" class="nav-btn">
+                    <span class="btn-icon">🔄</span>
+                    <span class="btn-text">Actualizar</span>
+                </button>
+                <button id="btn-predict" class="nav-btn nav-btn-primary">
+                    <span class="btn-icon">🤖</span>
+                    <span class="btn-text">Predecir</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">
+                <span class="title-line">Encuentra el</span>
+                <span class="title-line title-highlight">mejor momento</span>
+                <span class="title-line">para correr</span>
+            </h1>
+            <p class="hero-subtitle">Sistema inteligente de predicción ML basado en calidad del aire y condiciones meteorológicas en Madrid</p>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="stat-value" id="hero-stations">--</div>
+                    <div class="stat-label">Estaciones</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="stat-value" id="hero-aqi">--</div>
+                    <div class="stat-label">AQI Promedio</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="stat-value" id="hero-good">--</div>
+                    <div class="stat-label">Buenas para correr</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard">
+        <div class="dashboard-grid">
+            <!-- Left Column -->
+            <div class="dashboard-left">
+                <!-- Air Quality Card -->
+                <div class="card card-featured">
+                    <div class="card-header">
+                        <h2 class="card-title">Calidad del Aire</h2>
+                        <div class="card-badge" id="aqi-badge">Excelente</div>
+                    </div>
+                    <div class="card-content">
+                        <div class="metric-large">
+                            <div class="metric-value-large" id="metric-aqi">--</div>
+                            <div class="metric-unit">AQI</div>
+                        </div>
+                        <div class="metric-breakdown">
+                            <div class="breakdown-item">
+                                <span class="breakdown-label">NO₂</span>
+                                <span class="breakdown-value" id="metric-no2">--</span>
+                            </div>
+                            <div class="breakdown-item">
+                                <span class="breakdown-label">O₃</span>
+                                <span class="breakdown-value" id="metric-o3">--</span>
+                            </div>
+                            <div class="breakdown-item">
+                                <span class="breakdown-label">PM10</span>
+                                <span class="breakdown-value" id="metric-pm10">--</span>
+                            </div>
+                            <div class="breakdown-item">
+                                <span class="breakdown-label">PM2.5</span>
+                                <span class="breakdown-value" id="metric-pm25">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Weather Card -->
+                <div class="card" id="weather-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Condiciones Actuales</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="weather-main">
+                            <div class="weather-icon-large" id="weather-icon">🌡️</div>
+                            <div class="weather-temp-large" id="weather-temp">--°C</div>
+                        </div>
+                        <div class="weather-details">
+                            <div class="weather-detail">
+                                <span class="detail-icon">💧</span>
+                                <div>
+                                    <div class="detail-label">Humedad</div>
+                                    <div class="detail-value" id="weather-humidity">--%</div>
+                                </div>
+                            </div>
+                            <div class="weather-detail">
+                                <span class="detail-icon">💨</span>
+                                <div>
+                                    <div class="detail-label">Viento</div>
+                                    <div class="detail-value" id="weather-wind">-- km/h</div>
+                                </div>
+                            </div>
+                            <div class="weather-detail">
+                                <span class="detail-icon">☁️</span>
+                                <div>
+                                    <div class="detail-label">Estado</div>
+                                    <div class="detail-value" id="weather-desc">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Predictions Card -->
+                <div class="card" id="predictions-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Predicciones ML</h2>
+                        <div class="card-status" id="prediction-status">No ejecutado</div>
+                    </div>
+                    <div class="card-content">
+                        <div class="prediction-summary">
+                            <div class="prediction-item prediction-good">
+                                <div class="prediction-icon">✅</div>
+                                <div class="prediction-info">
+                                    <div class="prediction-count" id="pred-good-count">--</div>
+                                    <div class="prediction-label">Buenas para correr</div>
+                                </div>
+                            </div>
+                            <div class="prediction-item prediction-bad">
+                                <div class="prediction-icon">❌</div>
+                                <div class="prediction-info">
+                                    <div class="prediction-count" id="pred-bad-count">--</div>
+                                    <div class="prediction-label">No recomendadas</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="dashboard-right">
+                <!-- Map Card -->
+                <div class="card card-map">
+                    <div class="card-header">
+                        <h2 class="card-title">Mapa Interactivo</h2>
+                        <div class="map-controls">
+                            <button class="map-btn" id="btn-center" title="Centrar">📍</button>
+                            <button class="map-btn" id="btn-fit" title="Ajustar">🔍</button>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div id="map" class="map"></div>
+                        <div class="map-legend">
+                            <div class="legend-item"><span class="legend-dot excellent"></span>Excelente</div>
+                            <div class="legend-item"><span class="legend-dot good"></span>Buena</div>
+                            <div class="legend-item"><span class="legend-dot moderate"></span>Moderada</div>
+                            <div class="legend-item"><span class="legend-dot poor"></span>Mala</div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Top Stations -->
+                <div class="card" id="top-stations-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Top Estaciones</h2>
+                        <div class="card-subtitle">Mejores lugares para correr</div>
+                    </div>
+                    <div class="card-content">
+                        <div class="stations-list" id="stations-list">
+                            <div class="empty-state">Ejecuta la predicción para ver resultados</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loader">
+            <div class="loader-spinner"></div>
+            <div class="loader-text">Cargando datos...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

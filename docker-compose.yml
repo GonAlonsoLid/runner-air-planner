@@ -1,24 +1,32 @@
 services:
-  app:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: runner-air-planner
+    container_name: runner-air-planner-api
     ports:
-      - "8501:8501"
+      - "8001:8000"
     volumes:
-      # Mount data directory to persist datasets and models
       - ./data:/app/data
-      # Mount source for development (hot reload)
       - ./src:/app/src
-      - ./scripts:/app/scripts
     environment:
       - PYTHONPATH=/app/src
-    command: streamlit run src/runner_air_planner/frontend/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    command: uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  frontend:
+    image: nginx:alpine
+    container_name: runner-air-planner-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    restart: unless-stopped

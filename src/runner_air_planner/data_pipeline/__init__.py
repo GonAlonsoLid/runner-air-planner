@@ -22,7 +22,12 @@ from .master_data import (
     get_station_name,
     normalize_pollutant_code,
 )
-from .weather import WeatherClient, WeatherReport, WeatherServiceError
+from .weather import (
+    WeatherClient,
+    WeatherForecast,
+    WeatherReport,
+    WeatherServiceError,
+)
 
 __all__ = [
     # Main collector
@@ -47,6 +52,7 @@ __all__ = [
     "normalize_pollutant_code",
     # Weather
     "WeatherClient",
+    "WeatherForecast",
     "WeatherReport",
     "WeatherServiceError",
 ]

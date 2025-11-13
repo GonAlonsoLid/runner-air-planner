@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +89,8 @@ class DataCollector:
         *,
         air_quality_df: pd.DataFrame | None = None,
         weather_report: weather.WeatherReport | None = None,
+        weather_forecast: weather.WeatherForecast | None = None,
+        use_forecast: bool = True,
         min_records: int = 1000,
     ) -> pd.DataFrame:
         """Create a structured dataset ready for ML model training/prediction.
@@ -114,8 +116,16 @@ class DataCollector:
         if air_quality_df is None:
             air_quality_df = self.collect_air_quality_data()
         
-        if weather_report is None:
-            weather_report = self.get_weather_data()
+        # Get weather data - prefer forecast for ML predictions
+        if use_forecast:
+            if weather_forecast is None:
+                weather_forecast = self.get_weather_forecast()
+            # Use forecast data for ML features
+            weather_data = weather_forecast
+        else:
+            if weather_report is None:
+                weather_report = self.get_weather_data()
+            weather_data = weather_report
 
         if air_quality_df.empty:
             return pd.DataFrame()
@@ -199,13 +209,28 @@ class DataCollector:
                 ml_df["hour"].isin([7, 8, 9, 18, 19, 20]).astype(int)
             )
 
-        # Add weather features (same for all stations in Madrid)
-        ml_df["weather_temperature_c"] = weather_report.temperature_c
-        ml_df["weather_humidity"] = weather_report.relative_humidity
-        ml_df["weather_wind_speed_kmh"] = weather_report.wind_speed_kmh
-        ml_df["weather_code"] = weather_report.weather_code
-        ml_df["weather_description"] = weather_report.weather_description
-        ml_df["weather_observed_at"] = weather_report.observed_at
+        # Add weather features to all rows - use forecast if available
+        if weather_data:
+            if isinstance(weather_data, weather.WeatherForecast):
+                ml_df["weather_temperature_c"] = weather_data.temperature_c
+                ml_df["weather_humidity"] = weather_data.relative_humidity
+                ml_df["weather_wind_speed_kmh"] = weather_data.wind_speed_kmh
+                ml_df["weather_code"] = weather_data.weather_code
+                ml_df["weather_description"] = weather_data.weather_description
+                ml_df["weather_forecast_time"] = weather_data.forecast_time
+                ml_df["weather_precipitation_mm"] = weather_data.precipitation_mm
+                ml_df["weather_cloud_cover"] = weather_data.cloud_cover
+                ml_df["weather_precipitation_probability"] = weather_data.probability_precipitation
+            else:
+                # Fallback to current weather
+                ml_df["weather_temperature_c"] = weather_data.temperature_c
+                ml_df["weather_humidity"] = weather_data.relative_humidity
+                ml_df["weather_wind_speed_kmh"] = weather_data.wind_speed_kmh
+                ml_df["weather_code"] = weather_data.weather_code
+                ml_df["weather_description"] = weather_data.weather_description
+                ml_df["weather_observed_at"] = weather_data.observed_at
+                ml_df["weather_precipitation_mm"] = getattr(weather_data, 'precipitation_mm', None)
+                ml_df["weather_cloud_cover"] = getattr(weather_data, 'cloud_cover', None)
 
         # Create derived/synergy features
         ml_df = self._create_synergy_features(ml_df)
