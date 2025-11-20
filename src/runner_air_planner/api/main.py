@@ -10,11 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
@@ -41,6 +37,91 @@ app.add_middleware(
 # Configuración
 DATASET_PATH = Path("data/ml_dataset_accumulated.csv")
 MODEL_PATH = MODELS_DIR / "running_model.pkl"
+
+
+async def _get_weather_forecast_with_fallback(collector: DataCollector) -> weather.WeatherForecast | None:
+    """Get weather forecast with fallback to current weather if forecast fails."""
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, collector.get_weather_forecast),
+            timeout=10.0
+        )
+    except (asyncio.TimeoutError, Exception):
+        # Fallback to current weather
+        try:
+            weather_report = await loop.run_in_executor(
+                None, collector.get_weather_data
+            )
+            return weather.WeatherForecast(
+                forecast_time=datetime.now() + timedelta(hours=1),
+                temperature_c=weather_report.temperature_c,
+                relative_humidity=weather_report.relative_humidity,
+                wind_speed_kmh=weather_report.wind_speed_kmh,
+                weather_code=weather_report.weather_code,
+                weather_description=weather_report.weather_description,
+                precipitation_mm=getattr(weather_report, 'precipitation_mm', None),
+                cloud_cover=getattr(weather_report, 'cloud_cover', None),
+                probability_precipitation=None,
+            )
+        except Exception:
+            return None
+
+
+def _extract_weather_value(
+    station_weather: weather.WeatherForecast | None,
+    forecast: weather.WeatherForecast | None,
+    row: pd.Series,
+    attr_name: str,
+) -> float | None:
+    """Extract weather value from station-specific, forecast, or row data."""
+    # Try station-specific weather first
+    if station_weather:
+        value = getattr(station_weather, attr_name, None)
+        if value is not None:
+            return float(value)
+    
+    # Fallback to forecast
+    if forecast:
+        value = getattr(forecast, attr_name, None)
+        if value is not None:
+            return float(value)
+    
+    # Finally try row data
+    row_key_map = {
+        "temperature_c": "weather_temperature_c",
+        "wind_speed_kmh": "weather_wind_speed_kmh",
+        "relative_humidity": "weather_humidity",
+    }
+    row_key = row_key_map.get(attr_name, f"weather_{attr_name}")
+    row_value = row.get(row_key)
+    
+    return float(row_value) if pd.notna(row_value) else None
+
+
+def _create_station_dict(
+    station_code: str,
+    station_info: dict[str, Any],
+    row: pd.Series,
+    station_weather: weather.WeatherForecast | None = None,
+    forecast: weather.WeatherForecast | None = None,
+) -> dict[str, Any]:
+    """Create station dictionary from station info and data row."""
+    return {
+        "station_code": str(station_code),
+        "station_name": station_info.get("name", f"Estación {station_code}"),
+        "latitude": station_info.get("latitude", 0),
+        "longitude": station_info.get("longitude", 0),
+        "station_type": station_info.get("type", "Unknown"),
+        "aqi": float(row.get("air_quality_index", 0)) if pd.notna(row.get("air_quality_index")) else 0,
+        "no2": float(row.get("no2")) if pd.notna(row.get("no2")) else None,
+        "o3": float(row.get("o3")) if pd.notna(row.get("o3")) else None,
+        "pm10": float(row.get("pm10")) if pd.notna(row.get("pm10")) else None,
+        "pm25": float(row.get("pm25")) if pd.notna(row.get("pm25")) else None,
+        "temperature": _extract_weather_value(station_weather, forecast, row, "temperature_c"),
+        "wind_speed": _extract_weather_value(station_weather, forecast, row, "wind_speed_kmh"),
+        "humidity": _extract_weather_value(station_weather, forecast, row, "relative_humidity"),
+    }
 
 
 def _generate_explanation(
@@ -153,22 +234,6 @@ class PredictionRequest(BaseModel):
     use_realtime: bool = True  # Default to real-time predictions
 
 
-class StationData(BaseModel):
-    station_code: str
-    station_name: str
-    latitude: float
-    longitude: float
-    station_type: str
-    aqi: float
-    no2: float | None
-    o3: float | None
-    pm10: float | None
-    pm25: float | None
-    temperature: float | None
-    wind_speed: float | None
-    humidity: float | None
-    is_good_to_run: bool | None = None
-    prob_good: float | None = None
 
 
 @app.get("/")
@@ -188,6 +253,7 @@ async def get_realtime_data():
     """Get real-time air quality and weather data."""
     import asyncio
     try:
+        loop = asyncio.get_event_loop()
         collector = DataCollector()
         
         # Get air quality data first (fast)
@@ -196,36 +262,8 @@ async def get_realtime_data():
         if air_quality_df.empty:
             raise HTTPException(status_code=503, detail="No air quality data available")
         
-        # Try to get forecast with timeout, but don't fail if it doesn't work
-        weather_forecast = None
-        try:
-            # Run forecast in executor with timeout
-            loop = asyncio.get_event_loop()
-            weather_forecast = await asyncio.wait_for(
-                loop.run_in_executor(None, collector.get_weather_forecast),
-                timeout=10.0  # 10 second timeout for forecast
-            )
-        except (asyncio.TimeoutError, Exception) as e:
-            # Fallback to current weather if forecast fails or times out
-            try:
-                weather_report = await loop.run_in_executor(
-                    None, collector.get_weather_data
-                )
-                # Convert to forecast format
-                from datetime import timedelta
-                weather_forecast = weather.WeatherForecast(
-                    forecast_time=datetime.now() + timedelta(hours=1),
-                    temperature_c=weather_report.temperature_c,
-                    relative_humidity=weather_report.relative_humidity,
-                    wind_speed_kmh=weather_report.wind_speed_kmh,
-                    weather_code=weather_report.weather_code,
-                    weather_description=weather_report.weather_description,
-                    precipitation_mm=getattr(weather_report, 'precipitation_mm', None),
-                    cloud_cover=getattr(weather_report, 'cloud_cover', None),
-                    probability_precipitation=None,
-                )
-            except Exception:
-                weather_forecast = None
+        # Get weather forecast with fallback
+        weather_forecast = await _get_weather_forecast_with_fallback(collector)
         
         ml_df = await loop.run_in_executor(
             None,
@@ -244,7 +282,7 @@ async def get_realtime_data():
         latest_data = ml_df.sort_values("measurement_time", ascending=False).groupby("station_code").first()
         
         # Cache for station-specific weather to avoid too many API calls
-        station_weather_cache = {}
+        station_weather_cache: dict[str, weather.WeatherForecast | None] = {}
         
         stations = []
         for station_code, row in latest_data.iterrows():
@@ -256,69 +294,22 @@ async def get_realtime_data():
             station_lon = station_info.get("longitude")
             
             # Try to get station-specific weather if coordinates are available
-            temp_value = None
-            wind_value = None
-            humidity_value = None
-            
+            station_weather = None
             if station_lat and station_lon:
-                # Use station coordinates as cache key
                 cache_key = f"{station_lat:.2f},{station_lon:.2f}"
-                
                 if cache_key not in station_weather_cache:
                     try:
-                        # Get weather for this specific station location
-                        station_forecast = await loop.run_in_executor(
+                        station_weather_cache[cache_key] = await loop.run_in_executor(
                             None,
-                            lambda: collector._weather_client.fetch_weather_for_location(
-                                station_lat, station_lon
-                            )
+                            lambda lat=station_lat, lon=station_lon: collector._weather_client.fetch_weather_for_location(lat, lon)
                         )
-                        station_weather_cache[cache_key] = station_forecast
-                    except Exception as e:
-                        # Fallback to city-wide forecast
+                    except Exception:
                         station_weather_cache[cache_key] = weather_forecast
-                
                 station_weather = station_weather_cache[cache_key]
-                
-                if station_weather:
-                    temp_value = station_weather.temperature_c
-                    wind_value = station_weather.wind_speed_kmh
-                    humidity_value = station_weather.relative_humidity
             
-            # Fallback to city-wide forecast if station-specific failed
-            if temp_value is None:
-                if weather_forecast and weather_forecast.temperature_c is not None:
-                    temp_value = float(weather_forecast.temperature_c)
-                elif pd.notna(row.get("weather_temperature_c")):
-                    temp_value = float(row.get("weather_temperature_c"))
-            
-            if wind_value is None:
-                if weather_forecast and weather_forecast.wind_speed_kmh is not None:
-                    wind_value = float(weather_forecast.wind_speed_kmh)
-                elif pd.notna(row.get("weather_wind_speed_kmh")):
-                    wind_value = float(row.get("weather_wind_speed_kmh"))
-            
-            if humidity_value is None:
-                if weather_forecast and weather_forecast.relative_humidity is not None:
-                    humidity_value = float(weather_forecast.relative_humidity)
-                elif pd.notna(row.get("weather_humidity")):
-                    humidity_value = float(row.get("weather_humidity"))
-            
-            stations.append({
-                "station_code": str(station_code),
-                "station_name": station_info.get("name", f"Estación {station_code}"),
-                "latitude": station_lat or 0,
-                "longitude": station_lon or 0,
-                "station_type": station_info.get("type", "Unknown"),
-                "aqi": float(row.get("air_quality_index", 0)) if pd.notna(row.get("air_quality_index")) else 0,
-                "no2": float(row.get("no2")) if pd.notna(row.get("no2")) else None,
-                "o3": float(row.get("o3")) if pd.notna(row.get("o3")) else None,
-                "pm10": float(row.get("pm10")) if pd.notna(row.get("pm10")) else None,
-                "pm25": float(row.get("pm25")) if pd.notna(row.get("pm25")) else None,
-                "temperature": float(temp_value) if temp_value is not None else None,
-                "wind_speed": float(wind_value) if wind_value is not None else None,
-                "humidity": float(humidity_value) if humidity_value is not None else None,
-            })
+            stations.append(_create_station_dict(
+                station_code, station_info, row, station_weather, weather_forecast
+            ))
         
         weather_data = None
         if weather_forecast:
@@ -359,21 +350,7 @@ async def get_historical_data():
             if not station_info:
                 continue
             
-            stations.append({
-                "station_code": str(station_code),
-                "station_name": station_info.get("name", f"Estación {station_code}"),
-                "latitude": station_info.get("latitude", 0),
-                "longitude": station_info.get("longitude", 0),
-                "station_type": station_info.get("type", "Unknown"),
-                "aqi": float(row.get("air_quality_index", 0)) if pd.notna(row.get("air_quality_index")) else 0,
-                "no2": float(row.get("no2")) if pd.notna(row.get("no2")) else None,
-                "o3": float(row.get("o3")) if pd.notna(row.get("o3")) else None,
-                "pm10": float(row.get("pm10")) if pd.notna(row.get("pm10")) else None,
-                "pm25": float(row.get("pm25")) if pd.notna(row.get("pm25")) else None,
-                "temperature": float(row.get("weather_temperature_c")) if pd.notna(row.get("weather_temperature_c")) else None,
-                "wind_speed": float(row.get("weather_wind_speed_kmh")) if pd.notna(row.get("weather_wind_speed_kmh")) else None,
-                "humidity": float(row.get("weather_humidity")) if pd.notna(row.get("weather_humidity")) else None,
-            })
+            stations.append(_create_station_dict(station_code, station_info, row))
         
         return {"stations": stations, "count": len(stations)}
     except Exception as e:
@@ -409,27 +386,7 @@ async def predict(request: PredictionRequest):
                 raise HTTPException(status_code=503, detail="No air quality data available")
             
             # Get weather forecast for predictions (1 hour ahead)
-            try:
-                weather_forecast = await asyncio.wait_for(
-                    loop.run_in_executor(None, collector.get_weather_forecast),
-                    timeout=10.0
-                )
-            except (asyncio.TimeoutError, Exception):
-                # Fallback to current weather
-                weather_report = await loop.run_in_executor(
-                    None, collector.get_weather_data
-                )
-                weather_forecast = weather.WeatherForecast(
-                    forecast_time=datetime.now() + timedelta(hours=1),
-                    temperature_c=weather_report.temperature_c,
-                    relative_humidity=weather_report.relative_humidity,
-                    wind_speed_kmh=weather_report.wind_speed_kmh,
-                    weather_code=weather_report.weather_code,
-                    weather_description=weather_report.weather_description,
-                    precipitation_mm=getattr(weather_report, 'precipitation_mm', None),
-                    cloud_cover=getattr(weather_report, 'cloud_cover', None),
-                    probability_precipitation=None,
-                )
+            weather_forecast = await _get_weather_forecast_with_fallback(collector)
             
             # Create ML dataset with current conditions
             df = await loop.run_in_executor(
@@ -472,35 +429,26 @@ async def predict(request: PredictionRequest):
             station_lat = station_info.get("latitude")
             station_lon = station_info.get("longitude")
             
-            temp_value = None
-            wind_value = None
-            humidity_value = None
-            
+            station_weather = None
             if station_lat and station_lon and request.use_realtime:
                 try:
                     station_weather = await loop.run_in_executor(
                         None,
-                        lambda: collector._weather_client.fetch_weather_for_location(
-                            station_lat, station_lon
-                        )
+                        lambda lat=station_lat, lon=station_lon: collector._weather_client.fetch_weather_for_location(lat, lon)
                     )
-                    if station_weather:
-                        temp_value = station_weather.temperature_c
-                        wind_value = station_weather.wind_speed_kmh
-                        humidity_value = station_weather.relative_humidity
                 except Exception:
                     pass
             
-            # Fallback to row data
-            if temp_value is None:
-                temp_value = row.get("weather_temperature_c") if pd.notna(row.get("weather_temperature_c")) else None
-            if wind_value is None:
-                wind_value = row.get("weather_wind_speed_kmh") if pd.notna(row.get("weather_wind_speed_kmh")) else None
-            if humidity_value is None:
-                humidity_value = row.get("weather_humidity") if pd.notna(row.get("weather_humidity")) else None
+            # Get weather forecast for fallback
+            forecast = weather_forecast if request.use_realtime else None
             
             # Obtener running_score ANTES de generar la explicación
             running_score = float(row.get("running_score", 0)) if pd.notna(row.get("running_score")) else 0
+            
+            # Extract weather values for explanation
+            temp_value = _extract_weather_value(station_weather, forecast, row, "temperature_c")
+            wind_value = _extract_weather_value(station_weather, forecast, row, "wind_speed_kmh")
+            humidity_value = _extract_weather_value(station_weather, forecast, row, "relative_humidity")
             
             # Generar explicación del porqué (con el score correcto)
             explanation = _generate_explanation(
@@ -509,35 +457,26 @@ async def predict(request: PredictionRequest):
                 o3=float(row.get("o3")) if pd.notna(row.get("o3")) else None,
                 pm10=float(row.get("pm10")) if pd.notna(row.get("pm10")) else None,
                 pm25=float(row.get("pm25")) if pd.notna(row.get("pm25")) else None,
-                temperature=float(temp_value) if temp_value is not None else None,
-                wind_speed=float(wind_value) if wind_value is not None else None,
-                humidity=float(humidity_value) if humidity_value is not None else None,
+                temperature=temp_value,
+                wind_speed=wind_value,
+                humidity=humidity_value,
                 is_good=bool(row.get("prediction") == 1),
                 prob_good=float(row.get("prob_good")) if pd.notna(row.get("prob_good")) else None,
                 station_type=station_info.get("type", "Unknown"),
                 running_score=running_score,  # Pasar el score correcto
             )
             
-            results.append({
-                "station_code": str(station_code),
-                "station_name": station_info.get("name", f"Estación {station_code}"),
-                "latitude": station_info.get("latitude", 0),
-                "longitude": station_info.get("longitude", 0),
-                "station_type": station_info.get("type", "Unknown"),
-                "aqi": float(row.get("air_quality_index", 0)) if pd.notna(row.get("air_quality_index")) else 0,
-                "no2": float(row.get("no2")) if pd.notna(row.get("no2")) else None,
-                "o3": float(row.get("o3")) if pd.notna(row.get("o3")) else None,
-                "pm10": float(row.get("pm10")) if pd.notna(row.get("pm10")) else None,
-                "pm25": float(row.get("pm25")) if pd.notna(row.get("pm25")) else None,
-                "temperature": float(temp_value) if temp_value is not None else None,
-                "wind_speed": float(wind_value) if wind_value is not None else None,
-                "humidity": float(humidity_value) if humidity_value is not None else None,
+            station_dict = _create_station_dict(
+                station_code, station_info, row, station_weather, forecast
+            )
+            station_dict.update({
                 "is_good_to_run": bool(row.get("prediction") == 1),
                 "prob_good": float(row.get("prob_good")) if pd.notna(row.get("prob_good")) else None,
                 "prob_not_good": float(row.get("prob_not_good")) if pd.notna(row.get("prob_not_good")) else None,
-                "running_score": running_score,  # Score numérico 0-100
+                "running_score": running_score,
                 "explanation": explanation,
             })
+            results.append(station_dict)
         
         # Sort by running score (best conditions first)
         results.sort(key=lambda x: x.get("running_score", 0) or 0, reverse=True)

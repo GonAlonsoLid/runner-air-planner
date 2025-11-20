@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pickle
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -15,8 +14,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from runner_air_planner.data_pipeline import (
     DataCollector,
@@ -303,6 +300,23 @@ def collect_realtime_data() -> tuple[pd.DataFrame, dict[str, Any] | None]:
         return pd.DataFrame(), None
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Convert value to float safely, returning default if None/NaN."""
+    return float(value) if pd.notna(value) and value is not None else default
+
+
+def _get_aqi_status(aqi: float) -> tuple[str, str]:
+    """Get AQI color and quality description."""
+    if aqi <= 25:
+        return "#10b981", "Excelente"
+    elif aqi <= 50:
+        return "#fbbf24", "Buena"
+    elif aqi <= 75:
+        return "#f97316", "Moderada"
+    else:
+        return "#ef4444", "Mala"
+
+
 def create_air_quality_map(df: pd.DataFrame, predictions: pd.Series | None = None) -> folium.Map:
     """Create interactive map with air quality data."""
     madrid_center = [40.4168, -3.7038]
@@ -316,98 +330,80 @@ def create_air_quality_map(df: pd.DataFrame, predictions: pd.Series | None = Non
     folium.TileLayer("OpenStreetMap", name="OpenStreetMap", overlay=False, control=True).add_to(m)
     folium.TileLayer("CartoDB dark_matter", name="Modo Oscuro", overlay=False, control=True).add_to(m)
     
-    if not df.empty and "station_code" in df.columns:
-        latest_data = df.sort_values("measurement_time", ascending=False).groupby("station_code").first()
+    if df.empty or "station_code" not in df.columns:
+        folium.LayerControl().add_to(m)
+        return m
+    
+    latest_data = df.sort_values("measurement_time", ascending=False).groupby("station_code").first()
+    
+    for station_code, row in latest_data.iterrows():
+        station_info = get_station_info(station_code)
+        if not station_info:
+            continue
         
-        for station_code, row in latest_data.iterrows():
-            station_info = get_station_info(station_code)
-            if not station_info:
-                continue
-            
-            lat = station_info.get("latitude")
-            lon = station_info.get("longitude")
-            station_name = station_info.get("name", f"Estación {station_code}")
-            
-            if lat is None or lon is None:
-                continue
-            
-            # Obtener valores, manejando None y NaN correctamente
-            aqi = row.get("air_quality_index")
-            no2 = row.get("no2")
-            o3 = row.get("o3")
-            pm10 = row.get("pm10")
-            pm25 = row.get("pm25")
-            temp = row.get("weather_temperature_c")
-            wind = row.get("weather_wind_speed_kmh")
-            humidity = row.get("weather_humidity")
-            
-            # Convertir None/NaN a 0 solo para visualización
-            aqi = float(aqi) if pd.notna(aqi) and aqi is not None else 0
-            no2 = float(no2) if pd.notna(no2) and no2 is not None else 0
-            o3 = float(o3) if pd.notna(o3) and o3 is not None else 0
-            pm10 = float(pm10) if pd.notna(pm10) and pm10 is not None else 0
-            pm25 = float(pm25) if pd.notna(pm25) and pm25 is not None else 0
-            temp = float(temp) if pd.notna(temp) and temp is not None else 0
-            wind = float(wind) if pd.notna(wind) and wind is not None else 0
-            humidity = float(humidity) if pd.notna(humidity) and humidity is not None else 0
-            
-            if aqi <= 25:
-                color = "#10b981"
-                quality = "Excelente"
-            elif aqi <= 50:
-                color = "#fbbf24"
-                quality = "Buena"
-            elif aqi <= 75:
-                color = "#f97316"
-                quality = "Moderada"
-            else:
-                color = "#ef4444"
-                quality = "Mala"
-            
-            radius = max(10, min(25, int(temp / 1.5))) if temp > 0 else 12
-            
-            prediction_html = ""
-            if predictions is not None and station_code in predictions.index:
-                is_good = predictions[station_code] == 1
-                badge_color = "#10b981" if is_good else "#ef4444"
-                badge_text = "✅ Bueno para correr" if is_good else "❌ No recomendado"
-                prediction_html = f'<div style="margin-top: 0.5rem; padding: 0.5rem; background: {badge_color}20; border-radius: 6px; text-align: center; font-weight: 600; color: {badge_color};">{badge_text}</div>'
-            
-            popup_html = f"""
-            <div style="width: 280px; font-family: 'Poppins', sans-serif;">
-                <h3 style="margin: 0 0 0.5rem 0; color: #1e293b; font-size: 1.1rem; font-weight: 700;">{station_name}</h3>
-                <p style="margin: 0.25rem 0; color: #64748b; font-size: 0.85rem;"><strong>Tipo:</strong> {station_info.get('type', 'N/A')}</p>
-                <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid #e2e8f0;">
-                <div style="background: {color}20; padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0;">
-                    <p style="margin: 0; color: {color}; font-weight: 700; font-size: 1.1rem;">Calidad: {quality}</p>
-                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.9rem;">AQI: {aqi:.1f}</p>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.75rem 0;">
-                    <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">NO₂</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{no2:.1f} µg/m³</p></div>
-                    <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">O₃</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{o3:.1f} µg/m³</p></div>
-                    <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">PM10</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{pm10:.1f} µg/m³</p></div>
-                    <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">PM2.5</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{pm25:.1f} µg/m³</p></div>
-                </div>
-                <div style="background: #f1f5f9; padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0;">
-                    <p style="margin: 0; font-size: 0.85rem; color: #64748b; font-weight: 600;">🌡️ Condiciones</p>
-                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-weight: 700; font-size: 1.2rem;">{temp:.1f}°C</p>
-                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.85rem;">💨 {wind:.1f} km/h | 💧 {humidity:.0f}%</p>
-                </div>
-                {prediction_html}
+        lat = station_info.get("latitude")
+        lon = station_info.get("longitude")
+        station_name = station_info.get("name", f"Estación {station_code}")
+        
+        if lat is None or lon is None:
+            continue
+        
+        # Extract values safely
+        aqi = _safe_float(row.get("air_quality_index"))
+        no2 = _safe_float(row.get("no2"))
+        o3 = _safe_float(row.get("o3"))
+        pm10 = _safe_float(row.get("pm10"))
+        pm25 = _safe_float(row.get("pm25"))
+        temp = _safe_float(row.get("weather_temperature_c"))
+        wind = _safe_float(row.get("weather_wind_speed_kmh"))
+        humidity = _safe_float(row.get("weather_humidity"))
+        
+        color, quality = _get_aqi_status(aqi)
+        radius = max(10, min(25, int(temp / 1.5))) if temp > 0 else 12
+        
+        # Prediction badge
+        prediction_html = ""
+        if predictions is not None and station_code in predictions.index:
+            is_good = predictions[station_code] == 1
+            badge_color = "#10b981" if is_good else "#ef4444"
+            badge_text = "✅ Bueno para correr" if is_good else "❌ No recomendado"
+            prediction_html = f'<div style="margin-top: 0.5rem; padding: 0.5rem; background: {badge_color}20; border-radius: 6px; text-align: center; font-weight: 600; color: {badge_color};">{badge_text}</div>'
+        
+        popup_html = f"""
+        <div style="width: 280px; font-family: 'Poppins', sans-serif;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #1e293b; font-size: 1.1rem; font-weight: 700;">{station_name}</h3>
+            <p style="margin: 0.25rem 0; color: #64748b; font-size: 0.85rem;"><strong>Tipo:</strong> {station_info.get('type', 'N/A')}</p>
+            <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid #e2e8f0;">
+            <div style="background: {color}20; padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0;">
+                <p style="margin: 0; color: {color}; font-weight: 700; font-size: 1.1rem;">Calidad: {quality}</p>
+                <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.9rem;">AQI: {aqi:.1f}</p>
             </div>
-            """
-            
-            folium.CircleMarker(
-                location=[lat, lon],
-                radius=radius,
-                popup=folium.Popup(popup_html, max_width=300),
-                tooltip=f"{station_name} - {quality} ({temp:.1f}°C)",
-                color=color,
-                fill=True,
-                fillColor=color,
-                fillOpacity=0.7,
-                weight=3,
-            ).add_to(m)
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.75rem 0;">
+                <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">NO₂</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{no2:.1f} µg/m³</p></div>
+                <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">O₃</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{o3:.1f} µg/m³</p></div>
+                <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">PM10</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{pm10:.1f} µg/m³</p></div>
+                <div><p style="margin: 0; font-size: 0.75rem; color: #64748b;">PM2.5</p><p style="margin: 0; font-weight: 600; color: #1e293b;">{pm25:.1f} µg/m³</p></div>
+            </div>
+            <div style="background: #f1f5f9; padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0;">
+                <p style="margin: 0; font-size: 0.85rem; color: #64748b; font-weight: 600;">🌡️ Condiciones</p>
+                <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-weight: 700; font-size: 1.2rem;">{temp:.1f}°C</p>
+                <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.85rem;">💨 {wind:.1f} km/h | 💧 {humidity:.0f}%</p>
+            </div>
+            {prediction_html}
+        </div>
+        """
+        
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=radius,
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=f"{station_name} - {quality} ({temp:.1f}°C)",
+            color=color,
+            fill=True,
+            fillColor=color,
+            fillOpacity=0.7,
+            weight=3,
+        ).add_to(m)
     
     folium.LayerControl().add_to(m)
     
@@ -436,6 +432,26 @@ def main() -> None:
         st.session_state.last_update = None
     if "predictions" not in st.session_state:
         st.session_state.predictions = None
+    if "data_loaded" not in st.session_state:
+        st.session_state.data_loaded = False
+    
+    # Cargar datos automáticamente la primera vez
+    if not st.session_state.data_loaded:
+        with st.spinner("🔄 Cargando datos actualizados..."):
+            try:
+                ml_df, weather = collect_realtime_data()
+                if not ml_df.empty:
+                    st.session_state.realtime_data = ml_df
+                    st.session_state.realtime_weather = weather
+                    st.session_state.last_update = datetime.now()
+                    st.session_state.data_loaded = True
+                    st.rerun()
+                else:
+                    # Si no hay datos en tiempo real, intentar cargar históricos
+                    st.session_state.data_loaded = True
+            except Exception as e:
+                st.warning(f"⚠️ No se pudieron cargar datos en tiempo real: {e}")
+                st.session_state.data_loaded = True
     
     # Botones de acción principales
     col1, col2, col3 = st.columns([2, 2, 1])

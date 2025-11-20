@@ -1,5 +1,17 @@
 // API Configuration
-const API_BASE = 'http://localhost:8001';
+// Detect if running in Docker or localhost
+const isDocker = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+// If running in Docker, use the service name. Otherwise use localhost
+const API_BASE = isDocker ? 'http://api:8000' : 'http://localhost:8001';
+
+// For browser-based requests (from user's machine), always use localhost
+// Docker services communicate internally, but browser requests go to the host
+const API_BASE_BROWSER = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? 'http://localhost:8001' 
+    : `http://${window.location.hostname}:8001`;
+
+// Use browser-friendly URL for fetch requests
+const API_BASE_FETCH = API_BASE_BROWSER;
 
 // State
 let map = null;
@@ -66,8 +78,8 @@ function setupEventListeners() {
 async function loadHistoricalData() {
     showLoading();
     try {
-        console.log('Loading historical data from:', `${API_BASE}/api/data/historical`);
-        const response = await fetch(`${API_BASE}/api/data/historical`, {
+        console.log('Loading historical data from:', `${API_BASE_FETCH}/api/data/historical`);
+        const response = await fetch(`${API_BASE_FETCH}/api/data/historical`, {
             signal: AbortSignal.timeout(15000) // 15 second timeout
         });
         
@@ -117,8 +129,8 @@ async function updateRealtimeData() {
     showLoading();
     
     try {
-        console.log('Loading realtime data from:', `${API_BASE}/api/data/realtime`);
-        const response = await fetch(`${API_BASE}/api/data/realtime`, {
+        console.log('Loading realtime data from:', `${API_BASE_FETCH}/api/data/realtime`);
+        const response = await fetch(`${API_BASE_FETCH}/api/data/realtime`, {
             signal: AbortSignal.timeout(30000) // 30 second timeout
         });
         
@@ -156,7 +168,7 @@ async function runPredictions() {
     
     try {
         const useRealtime = !!(currentData && currentData.timestamp);
-        const response = await fetch(`${API_BASE}/api/predict`, {
+        const response = await fetch(`${API_BASE_FETCH}/api/predict`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ use_realtime: useRealtime }),

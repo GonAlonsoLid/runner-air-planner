@@ -48,95 +48,55 @@ class RunningSuitabilityModel:
             DataFrame with only feature columns
         """
         # Si el modelo ya está entrenado, usar SOLO las features que conoce
-        # Verificar si el modelo tiene feature_names_ (scikit-learn)
-        has_fitted_features = hasattr(self.model, 'feature_names_in_') and self.model.feature_names_in_ is not None
-        
-        if has_fitted_features:
-            # El modelo tiene features definidas (fue entrenado)
-            # Usar exactamente las features que scikit-learn conoce
-            required_features = list(self.model.feature_names_in_)
+        if self.is_trained:
+            # Preferir feature_names_in_ de scikit-learn si está disponible
+            if hasattr(self.model, 'feature_names_in_') and self.model.feature_names_in_ is not None:
+                required_features = list(self.model.feature_names_in_)
+            elif self.feature_columns is not None:
+                required_features = self.feature_columns.copy()
+            else:
+                raise RuntimeError("Model is trained but feature names are not available")
             
-            # Crear DataFrame con las features requeridas
-            # Añadir features faltantes con valor 0, ignorar features extra
+            # Crear DataFrame con las features requeridas, rellenando faltantes con 0
             feature_df = pd.DataFrame(index=df.index)
             for feature in required_features:
-                if feature in df.columns:
-                    feature_df[feature] = df[feature].fillna(0)
-                else:
-                    # Feature no existe en el DataFrame, usar 0
-                    feature_df[feature] = 0
+                feature_df[feature] = df[feature].fillna(0) if feature in df.columns else 0
             
-            # Asegurar el orden correcto de las columnas (mismo orden que durante entrenamiento)
-            feature_df = feature_df[required_features]
-            return feature_df
-        elif self.is_trained and self.feature_columns is not None:
-            # Fallback: usar feature_columns si está disponible
-            required_features = self.feature_columns.copy()
-            
-            # Crear DataFrame con las features requeridas
-            feature_df = pd.DataFrame(index=df.index)
-            for feature in required_features:
-                if feature in df.columns:
-                    feature_df[feature] = df[feature].fillna(0)
-                else:
-                    # Feature no existe en el DataFrame, usar 0
-                    feature_df[feature] = 0
-            
-            # Asegurar el orden correcto de las columnas
-            feature_df = feature_df[required_features]
-            return feature_df
+            return feature_df[required_features]  # Asegurar orden correcto
         
-        # Si no está entrenado, usar la lógica normal para definir features
-        # Features numéricas de contaminantes
-        pollutant_features = ["no2", "o3", "pm10", "pm25", "no", "nox"]
+        # Si no está entrenado, definir features desde cero
+        feature_groups = {
+            "pollutant": ["no2", "o3", "pm10", "pm25", "no", "nox"],
+            "temporal": ["hour", "day_of_week", "month", "is_weekend", "is_rush_hour"],
+            "weather": [
+                "weather_temperature_c",
+                "weather_humidity",
+                "weather_wind_speed_kmh",
+                "weather_precipitation_mm",
+                "weather_cloud_cover",
+                "weather_precipitation_probability",
+            ],
+            "synergy": [
+                "wind_no2_synergy",
+                "wind_o3_synergy",
+                "wind_pm10_synergy",
+                "wind_pm25_synergy",
+                "wind_strong",
+                "wind_weak",
+                "temp_o3_synergy",
+                "air_quality_index",
+                "precipitation_risk",
+            ],
+            "station": ["is_traffic_station", "is_suburban_station"],
+        }
         
-        # Features temporales
-        temporal_features = ["hour", "day_of_week", "month", "is_weekend", "is_rush_hour"]
-        
-        # Features meteorológicas (usando predicción de 1 hora)
-        weather_features = [
-            "weather_temperature_c",
-            "weather_humidity",
-            "weather_wind_speed_kmh",
-            "weather_precipitation_mm",
-            "weather_cloud_cover",
-            "weather_precipitation_probability",
-        ]
-        
-        # Features de sinergia
-        synergy_features = [
-            "wind_no2_synergy",
-            "wind_o3_synergy",
-            "wind_pm10_synergy",
-            "wind_pm25_synergy",
-            "wind_strong",
-            "wind_weak",
-            "temp_o3_synergy",
-            "air_quality_index",
-            "precipitation_risk",  # Nueva feature basada en probabilidad de lluvia
-        ]
-        
-        # Features de estación
-        station_features = ["is_traffic_station", "is_suburban_station"]
-        
-        all_features = (
-            pollutant_features
-            + temporal_features
-            + weather_features
-            + synergy_features
-            + station_features
-        )
-        
-        # Filtrar solo las que existen en el DataFrame
+        all_features = [f for group in feature_groups.values() for f in group]
         available_features = [f for f in all_features if f in df.columns]
         
         # Guardar para uso futuro
-        if self.feature_columns is None:
-            self.feature_columns = available_features
+        self.feature_columns = available_features
         
-        # Crear DataFrame con las features disponibles, rellenando NaN con 0
-        feature_df = df[available_features].fillna(0)
-        return feature_df
+        return df[available_features].fillna(0)
 
     def calculate_running_score(self, df: pd.DataFrame) -> pd.Series:
         """Calculate running suitability score (0-100) based on all factors.
@@ -388,123 +348,6 @@ class RunningSuitabilityModel:
         )
         
         return result_df
-
-    def predict_current_conditions(
-        self,
-        *,
-        no2: float | None = None,
-        o3: float | None = None,
-        pm10: float | None = None,
-        pm25: float | None = None,
-        temperature: float | None = None,
-        humidity: float | None = None,
-        wind_speed: float | None = None,
-        hour: int | None = None,
-        is_weekend: bool | None = None,
-        station_type: str | None = None,
-    ) -> dict[str, Any]:
-        """Predict running suitability for current conditions.
-        
-        This method creates a single-row DataFrame with the provided conditions
-        and makes a prediction. Useful for real-time predictions.
-        
-        Args:
-            no2: NO2 concentration (µg/m³)
-            o3: O3 concentration (µg/m³)
-            pm10: PM10 concentration (µg/m³)
-            pm25: PM25 concentration (µg/m³)
-            temperature: Temperature in Celsius
-            humidity: Relative humidity (%)
-            wind_speed: Wind speed (km/h)
-            hour: Current hour (0-23)
-            is_weekend: Whether it's weekend
-            station_type: Station type ("Tráfico" or "Suburbana")
-            
-        Returns:
-            Dictionary with prediction, probability, and recommendation
-        """
-        if not self.is_trained:
-            raise RuntimeError("Model must be trained before prediction")
-        
-        # Get current time if not provided
-        from datetime import datetime
-        now = datetime.now()
-        if hour is None:
-            hour = now.hour
-        if is_weekend is None:
-            is_weekend = now.weekday() >= 5
-        
-        # Create a single-row DataFrame with all features
-        data = {
-            "no2": [no2 or 0],
-            "o3": [o3 or 0],
-            "pm10": [pm10 or 0],
-            "pm25": [pm25 or 0],
-            "no": [0],
-            "nox": [0],
-            "hour": [hour],
-            "day_of_week": [now.weekday()],
-            "month": [now.month],
-            "is_weekend": [1 if is_weekend else 0],
-            "is_rush_hour": [1 if hour in [7, 8, 9, 18, 19, 20] else 0],
-            "weather_temperature_c": [temperature or 0],
-            "weather_humidity": [humidity or 0],
-            "weather_wind_speed_kmh": [wind_speed or 0],
-            "weather_precipitation_mm": [0],
-            "weather_cloud_cover": [0],
-            "weather_precipitation_probability": [0],
-            "is_traffic_station": [1 if station_type == "Tráfico" else 0],
-            "is_suburban_station": [1 if station_type == "Suburbana" else 0],
-        }
-        
-        # Create synergy features
-        wind = wind_speed or 0
-        data["wind_no2_synergy"] = [wind / (no2 + 1) if no2 else 0]
-        data["wind_o3_synergy"] = [wind / (o3 + 1) if o3 else 0]
-        data["wind_pm10_synergy"] = [wind / (pm10 + 1) if pm10 else 0]
-        data["wind_pm25_synergy"] = [wind / (pm25 + 1) if pm25 else 0]
-        data["wind_strong"] = [1 if wind > 20 else 0]
-        data["wind_weak"] = [1 if wind < 5 else 0]
-        
-        temp = temperature or 0
-        data["temp_o3_synergy"] = [(temp * (o3 or 0)) / 100]
-        
-        # Calculate AQI
-        pollutant_weights = {"no2": 0.25, "o3": 0.25, "pm10": 0.20, "pm25": 0.20}
-        aqi = 0
-        for pollutant, weight in pollutant_weights.items():
-            value = data[pollutant][0]
-            normalized = min((value / 100), 1) * 100
-            aqi += normalized * weight
-        data["air_quality_index"] = [aqi]
-        data["precipitation_risk"] = [0]
-        
-        df = pd.DataFrame(data)
-        
-        # Make prediction
-        prediction = self.predict(df).iloc[0]
-        proba = self.predict_proba(df).iloc[0]
-        
-        is_good = bool(prediction == 1)
-        prob_good = float(proba["prob_good"])
-        
-        # Generate recommendation
-        if prob_good >= 0.7:
-            recommendation = "Excelente momento para correr"
-        elif prob_good >= 0.5:
-            recommendation = "Buen momento para correr"
-        elif prob_good >= 0.3:
-            recommendation = "Condiciones moderadas, considera esperar"
-        else:
-            recommendation = "No recomendado para correr"
-        
-        return {
-            "is_good_to_run": is_good,
-            "prob_good": prob_good,
-            "prob_not_good": float(proba["prob_not_good"]),
-            "recommendation": recommendation,
-            "air_quality_index": aqi,
-        }
 
 
 __all__ = ["RunningSuitabilityModel", "MODELS_DIR"]
