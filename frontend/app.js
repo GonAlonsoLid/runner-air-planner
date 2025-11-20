@@ -22,7 +22,7 @@ let currentData = null;
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     setupEventListeners();
-    loadHistoricalData();
+    updateRealtimeData();
 });
 
 // Initialize Leaflet Map with dark theme
