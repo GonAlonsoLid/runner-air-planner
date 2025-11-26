@@ -694,6 +694,12 @@ body::before {
     justify-content: center;
 }
 
+.loading-overlay.hidden {
+    display: none !important;
+    visibility: hidden;
+    opacity: 0;
+}
+
 .loader {
     text-align: center;
 }
