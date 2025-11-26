@@ -278,3 +278,34 @@ ports:
 Verifica que:
 1. La API esté corriendo en http://localhost:8001
 2. El frontend esté accediendo a la URL correcta (ver `frontend/app.js`)
+
+## ☁️ Despliegue en Render
+
+El proyecto incluye configuración para desplegar en Render automáticamente.
+
+### Configuración automática
+
+1. **Conecta tu repositorio de GitHub a Render**
+2. **Render detectará automáticamente el archivo `render.yaml`** y configurará el servicio
+
+### Configuración manual (si es necesario)
+
+Si prefieres configurar manualmente en el dashboard de Render:
+
+- **Environment**: Python 3
+- **Build Command**: 
+  ```bash
+  pip install poetry==1.8.3 && poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-root
+  ```
+- **Start Command**: 
+  ```bash
+  bash scripts/start_render.sh
+  ```
+- **Health Check Path**: `/api/health`
+
+### Notas importantes para Render
+
+- Render usa la variable de entorno `PORT` automáticamente
+- Los datos se almacenan en el sistema de archivos del servicio (no persisten entre reinicios)
+- Para datos persistentes, considera usar un servicio de base de datos o almacenamiento externo
+- El frontend estático necesita desplegarse por separado o integrarse con la API

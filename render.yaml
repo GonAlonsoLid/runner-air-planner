@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: runner-air-planner-api
+    env: python
+    buildCommand: |
+      pip install poetry==1.8.3
+      poetry config virtualenvs.create false
+      poetry install --no-interaction --no-ansi --no-root
+    startCommand: bash scripts/start_render.sh
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: 1
+    healthCheckPath: /api/health
+
