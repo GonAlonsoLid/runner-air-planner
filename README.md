@@ -10,57 +10,155 @@ Crear un dataset estructurado con **mínimo 1000 registros** y entrenar un model
 - **Features temporales** (hora, día semana, mes)
 - **Features de sinergia** (interacciones entre variables)
 
-## 🚀 Inicio Rápido con Docker
+## 🚀 Inicio Rápido con Docker (Recomendado)
 
-### Levantar la aplicación
+### Primera vez
 
 ```bash
-# Construir y levantar (primera vez)
+# Construir y levantar la aplicación
 docker-compose up -d --build
+
+# Ver los logs para verificar que todo funciona
+docker-compose logs -f
+```
+
+### Uso normal
+
+```bash
+# Levantar la aplicación
+docker-compose up -d
 
 # Ver logs
 docker-compose logs -f
 
-# La app estará disponible en http://localhost:8501
+# Detener la aplicación
+docker-compose down
 ```
 
-### Comandos útiles
+**La aplicación estará disponible en:**
+- **Frontend**: http://localhost:8080
+- **API**: http://localhost:8001
+- **API Health Check**: http://localhost:8001/api/health
+
+### Comandos útiles con Docker
 
 ```bash
 # Recopilar datos
-docker-compose exec app poetry run collect --accumulate
+docker-compose exec api poetry run collect --accumulate
 
 # Entrenar modelo (cuando tengas 1000+ registros)
-docker-compose exec app poetry run train
+docker-compose exec api poetry run train
 
 # Hacer predicciones
-docker-compose exec app poetry run predict
+docker-compose exec api poetry run predict
 
 # Abrir shell en el contenedor
-docker-compose exec app bash
+docker-compose exec api bash
 
 # Detener
 docker-compose down
 ```
 
-### Desarrollo con hot-reload
+## 📦 Instalación Local (Sin Docker)
 
+### Requisitos
+
+- Python 3.11 o superior
+- Poetry instalado
+
+### Pasos
+
+1. **Instalar Poetry** (si no lo tienes):
 ```bash
-docker-compose -f docker-compose.dev.yml up
+# Windows (PowerShell)
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+
+# Linux/Mac
+curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-## 📦 Instalación con Poetry (Local)
-
+2. **Instalar dependencias:**
 ```bash
-# Instalar Poetry
-curl -sSL https://install.python-poetry.org | python3 -
-
-# Instalar dependencias
 poetry install
+```
 
-# Activar entorno
+3. **Activar el entorno virtual:**
+```bash
 poetry shell
 ```
+
+4. **Ejecutar la API:**
+```bash
+# Opción 1: Con uvicorn directamente
+uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Opción 2: Con Python
+python -m runner_air_planner.api.main
+```
+
+5. **Servir el frontend:**
+```bash
+# Con Python simple server
+cd frontend
+python -m http.server 8080
+
+# O con cualquier servidor web estático
+# El frontend está en la carpeta frontend/
+```
+
+**La aplicación estará disponible en:**
+- **Frontend**: http://localhost:8080
+- **API**: http://localhost:8001
+
+## 📊 Uso
+
+### 1. Recopilar datos
+
+```bash
+# Con Docker
+docker-compose exec api poetry run collect --accumulate
+
+# Localmente
+poetry run collect --accumulate
+```
+
+### 2. Acumular hasta 1000+ registros
+
+La API de Madrid solo devuelve datos del día actual (~300-400 registros). Para alcanzar 1000+:
+
+```bash
+# Ejecutar varias veces (cada 1-2 horas)
+docker-compose exec api poetry run collect --accumulate
+
+# O automático con el script
+python scripts/collect_multiple_days.py --min-records 1000 --interval-hours 1
+```
+
+### 3. Entrenar modelo
+
+```bash
+# Con Docker
+docker-compose exec api poetry run train
+
+# Localmente
+poetry run train
+```
+
+### 4. Hacer predicciones
+
+```bash
+# Con Docker
+docker-compose exec api poetry run predict
+
+# Localmente
+poetry run predict
+```
+
+### 5. Visualizar en Frontend
+
+Abre http://localhost:8080 en tu navegador (si usas Docker) o http://localhost:8080 si ejecutas el servidor localmente.
+
+El frontend se conecta automáticamente a la API en http://localhost:8001.
 
 ## 🏗️ Estructura del Proyecto
 
@@ -78,60 +176,22 @@ runner-air-planner/
 │   │   ├── model.py                # Definición del modelo
 │   │   ├── train.py                # Entrenamiento
 │   │   └── predict.py              # Predicciones
-│   └── frontend/                # Interfaz de usuario
-│       └── streamlit_app.py        # Dashboard Streamlit
+│   └── api/                      # API Backend
+│       └── main.py                # FastAPI application
+├── frontend/                     # Frontend estático (HTML/JS/CSS)
+│   ├── index.html
+│   ├── app.js
+│   └── styles.css
 ├── scripts/
-│   └── collect_multiple_days.py
-├── data/                           # Datasets y modelos
+│   ├── collect_multiple_days.py  # Script para recopilar datos automáticamente
+│   └── docker-entrypoint.sh       # Script de entrada para Docker
+├── data/                         # Datasets y modelos
 │   ├── ml_dataset_accumulated.csv
 │   └── models/
-├── Dockerfile
-├── docker-compose.yml
-└── pyproject.toml                  # Gestión con Poetry
-```
-
-## 📊 Uso
-
-### 1. Recopilar datos
-
-```bash
-# Con Docker
-docker-compose exec app poetry run collect --accumulate
-
-# Con Poetry local
-poetry run collect --accumulate
-```
-
-### 2. Acumular hasta 1000+ registros
-
-La API de Madrid solo devuelve datos del día actual (~300-400 registros). Para alcanzar 1000+:
-
-```bash
-# Ejecutar varias veces (cada 1-2 horas)
-docker-compose exec app poetry run collect --accumulate
-
-# O automático
-python scripts/collect_multiple_days.py --min-records 1000 --interval-hours 1
-```
-
-### 3. Entrenar modelo
-
-```bash
-docker-compose exec app poetry run train
-```
-
-### 4. Hacer predicciones
-
-```bash
-docker-compose exec app poetry run predict
-```
-
-### 5. Visualizar en Frontend
-
-Abre http://localhost:8501 en tu navegador (si usas Docker) o:
-
-```bash
-poetry run streamlit run src/runner_air_planner/frontend/streamlit_app.py
+│       └── running_model.pkl
+├── Dockerfile                    # Imagen Docker para la API
+├── docker-compose.yml            # Configuración Docker Compose
+└── pyproject.toml                # Gestión con Poetry
 ```
 
 ## 📈 Dataset para ML
@@ -156,21 +216,65 @@ El dataset final (`ml_dataset_accumulated.csv`) contiene **~42 features**:
 
 ## 📝 Notas
 
+- La primera vez que ejecutes la app, necesitarás recopilar datos y entrenar el modelo
+- Los datos se guardan en `data/ml_dataset_accumulated.csv`
+- El modelo entrenado se guarda en `data/models/running_model.pkl`
 - Los datos se acumulan automáticamente, eliminando duplicados
 - Por defecto se mantienen últimos 30 días de historial
 - El dataset se actualiza incrementalmente con cada ejecución
-- Los modelos entrenados se guardan en `data/models/`
 
-## 🛠️ Comandos Makefile
+## 🔧 API Endpoints
+
+La API FastAPI proporciona los siguientes endpoints:
+
+- `GET /` - Health check básico
+- `GET /api/health` - Health check detallado
+- `GET /api/data/realtime` - Obtener datos de calidad del aire en tiempo real
+- `GET /api/data/historical` - Obtener datos históricos acumulados
+- `POST /api/predict` - Ejecutar predicciones ML con el modelo entrenado
+
+### Ejemplo de uso de la API
 
 ```bash
-make up          # Levantar app
-make collect     # Recopilar datos
-make train       # Entrenar modelo
-make predict     # Hacer predicciones
-make logs        # Ver logs
-make shell       # Abrir shell
-make down        # Detener
+# Obtener datos en tiempo real
+curl http://localhost:8001/api/data/realtime
+
+# Hacer predicciones
+curl -X POST http://localhost:8001/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{"use_realtime": true}'
 ```
 
-Ver `QUICKSTART.md` para más detalles.
+## 🐛 Troubleshooting
+
+### Docker no inicia
+```bash
+# Ver logs
+docker-compose logs
+
+# Reconstruir imagen
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Poetry no encuentra dependencias
+```bash
+# Reinstalar
+poetry install
+
+# Limpiar cache
+poetry cache clear pypi --all
+poetry install
+```
+
+### Puerto ocupado
+Si el puerto 8001 o 8080 están ocupados, puedes cambiarlos en `docker-compose.yml`:
+```yaml
+ports:
+  - "8002:8000"  # Cambia 8001 a 8002
+```
+
+### El frontend no se conecta a la API
+Verifica que:
+1. La API esté corriendo en http://localhost:8001
+2. El frontend esté accediendo a la URL correcta (ver `frontend/app.js`)
