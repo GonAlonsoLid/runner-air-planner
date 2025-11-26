@@ -279,58 +279,43 @@ Verifica que:
 1. La API esté corriendo en http://localhost:8001
 2. El frontend esté accediendo a la URL correcta (ver `frontend/app.js`)
 
-## ☁️ Despliegue en Render
+## ☁️ Despliegue en Render con Docker
 
-El proyecto incluye configuración para desplegar en Render. Si el servicio ya existe y no detecta el `render.yaml`, configura manualmente:
+El proyecto está configurado para desplegarse en Render usando **Docker**.
 
-### ⚠️ Configuración Manual en Render (Recomendado si el servicio ya existe)
+### Configuración en Render
 
-Si tu servicio en Render ya fue creado manualmente, ve a **Settings** y configura:
+1. **Crea un nuevo servicio Web Service** en Render
+2. **Conecta tu repositorio de GitHub**
+3. **Configura el servicio**:
+   - **Environment**: `Docker` (o "Dockerfile")
+   - Render detectará automáticamente el `Dockerfile` en la raíz
+   - **Health Check Path**: `/api/health` (opcional)
 
-1. **Environment**: `Python 3`
-
-2. **Build Command**:
-   ```bash
-   pip install --upgrade pip && pip install -r requirements.txt
-   ```
-
-3. **Start Command**:
-   ```bash
-   mkdir -p data/models data/raw data/interim data/processed && export PYTHONPATH="${PYTHONPATH}:$(pwd)/src" && uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port $PORT
-   ```
-
-4. **Health Check Path**: `/api/health`
-
-5. **Environment Variables** (opcional, en la sección Environment):
+4. **Variables de Entorno** (opcional, en Settings → Environment):
    - `PYTHONUNBUFFERED`: `1`
-   - `PYTHONPATH`: `/opt/render/project/src`
 
-### Configuración automática (nuevo servicio)
+### Cómo funciona
 
-Si creas un **nuevo servicio** desde cero:
-
-1. Conecta tu repositorio de GitHub a Render
-2. Render debería detectar automáticamente el archivo `render.yaml`
-3. Si no lo detecta, usa la configuración manual de arriba
-
-### Solución de problemas comunes
-
-**Error: "Empty build command"**
-- Ve a Settings → Build Command y asegúrate de que esté configurado
-- Usa el Build Command de arriba
-
-**Error: "Publish directory build does not exist"**
-- Esto significa que Render está tratando tu servicio como "Static Site"
-- Asegúrate de que el tipo de servicio sea **"Web Service"** (no "Static Site")
-- Ve a Settings y verifica que el tipo sea correcto
-
-**Error: "Module not found"**
-- Añade la variable de entorno `PYTHONPATH` con valor `/opt/render/project/src`
-- O usa el Start Command completo de arriba que incluye el export
+- Render construye la imagen Docker usando el `Dockerfile`
+- El `Dockerfile` instala Poetry y todas las dependencias desde `pyproject.toml`
+- La aplicación se inicia automáticamente con uvicorn
+- Render asigna automáticamente el puerto usando la variable `PORT`
 
 ### Notas importantes para Render
 
-- Render usa la variable de entorno `PORT` automáticamente (no la definas manualmente)
-- Los datos se almacenan en el sistema de archivos del servicio (no persisten entre reinicios)
-- Para datos persistentes, considera usar un servicio de base de datos o almacenamiento externo
-- El frontend estático necesita desplegarse por separado o integrarse con la API
+- ✅ El `Dockerfile` ya está configurado para usar la variable `PORT` de Render
+- ✅ No necesitas `requirements.txt` ni `render.yaml` (el Dockerfile usa Poetry directamente)
+- ⚠️ Los datos se almacenan en el sistema de archivos del contenedor (no persisten entre reinicios)
+- 💡 Para datos persistentes, considera usar un servicio de base de datos o almacenamiento externo
+- 🌐 El frontend estático necesita desplegarse por separado o integrarse con la API
+
+### Solución de problemas
+
+**El servicio no inicia:**
+- Verifica que el tipo de servicio sea **"Web Service"** con **"Docker"** como environment
+- Revisa los logs en Render para ver errores específicos
+
+**Error de puerto:**
+- El `Dockerfile` ya está configurado para usar `${PORT}` automáticamente
+- No definas la variable `PORT` manualmente en Render
