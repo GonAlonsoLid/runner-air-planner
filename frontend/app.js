@@ -1,17 +1,6 @@
 // API Configuration
-// Detect if running in Docker or localhost
-const isDocker = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-// If running in Docker, use the service name. Otherwise use localhost
-const API_BASE = isDocker ? 'http://api:8000' : 'http://localhost:8001';
-
-// For browser-based requests (from user's machine), always use localhost
-// Docker services communicate internally, but browser requests go to the host
-const API_BASE_BROWSER = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? 'http://localhost:8001' 
-    : `http://${window.location.hostname}:8001`;
-
-// Use browser-friendly URL for fetch requests
-const API_BASE_FETCH = API_BASE_BROWSER;
+// Use the same origin as the frontend (works for both localhost and production)
+const API_BASE_FETCH = window.location.origin;
 
 // State
 let map = null;

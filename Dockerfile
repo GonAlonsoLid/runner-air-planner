@@ -19,6 +19,7 @@ COPY pyproject.toml ./
 COPY poetry.lock* ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
+COPY frontend/ ./frontend/
 
 # Install dependencies AND the package itself
 # If poetry.lock doesn't exist, Poetry will generate it automatically

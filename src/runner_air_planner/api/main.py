@@ -10,6 +10,8 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import pandas as pd
@@ -37,6 +39,7 @@ app.add_middleware(
 # Configuración
 DATASET_PATH = Path("data/ml_dataset_accumulated.csv")
 MODEL_PATH = MODELS_DIR / "running_model.pkl"
+FRONTEND_DIR = Path("frontend")
 
 
 async def _get_weather_forecast_with_fallback(collector: DataCollector) -> weather.WeatherForecast | None:
@@ -236,10 +239,40 @@ class PredictionRequest(BaseModel):
 
 
 
-@app.get("/")
-async def root():
-    """Health check."""
-    return {"status": "ok", "service": "Runner Air Planner API"}
+# Mount static files for frontend (CSS, JS, etc.)
+if FRONTEND_DIR.exists():
+    # Serve static files (CSS, JS) from the frontend directory
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    
+    @app.get("/")
+    async def root():
+        """Serve frontend index.html."""
+        index_path = FRONTEND_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+        return {"status": "ok", "service": "Runner Air Planner API", "note": "Frontend not found"}
+    
+    # Serve CSS and JS files directly (for compatibility with relative paths in HTML)
+    @app.get("/styles.css")
+    async def serve_css():
+        """Serve CSS file."""
+        css_path = FRONTEND_DIR / "styles.css"
+        if css_path.exists():
+            return FileResponse(str(css_path), media_type="text/css")
+        raise HTTPException(status_code=404, detail="CSS not found")
+    
+    @app.get("/app.js")
+    async def serve_js():
+        """Serve JavaScript file."""
+        js_path = FRONTEND_DIR / "app.js"
+        if js_path.exists():
+            return FileResponse(str(js_path), media_type="application/javascript")
+        raise HTTPException(status_code=404, detail="JS not found")
+else:
+    @app.get("/")
+    async def root():
+        """Health check."""
+        return {"status": "ok", "service": "Runner Air Planner API"}
 
 
 @app.get("/api/health")
