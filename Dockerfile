@@ -28,6 +28,10 @@ RUN poetry install --no-interaction --no-ansi || \
 # Create data directories (will be mounted as volumes)
 RUN mkdir -p data/models data/raw data/interim data/processed
 
+# Set PYTHONPATH environment variable to ensure the package can be found
+# This is a fallback in case Poetry doesn't install the package in the expected location
+ENV PYTHONPATH=/app/src:/app
+
 # Expose API port (Render will use PORT env var)
 EXPOSE 8000
 
@@ -37,4 +41,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Default command: run FastAPI app
 # Use PORT environment variable if available (for Render), otherwise default to 8000
+# PYTHONPATH is set via ENV above to ensure the package can be found
 CMD sh -c "uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"
