@@ -3,12 +3,16 @@ services:
     name: runner-air-planner-api
     env: python
     buildCommand: |
-      pip install poetry==1.8.3
-      poetry config virtualenvs.create false
-      poetry install --no-interaction --no-ansi --no-root
-    startCommand: bash scripts/start_render.sh
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: |
+      mkdir -p data/models data/raw data/interim data/processed
+      export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+      uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHONUNBUFFERED
         value: 1
+      - key: PYTHONPATH
+        value: /opt/render/project/src
     healthCheckPath: /api/health
 

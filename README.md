@@ -281,31 +281,56 @@ Verifica que:
 
 ## ☁️ Despliegue en Render
 
-El proyecto incluye configuración para desplegar en Render automáticamente.
+El proyecto incluye configuración para desplegar en Render. Si el servicio ya existe y no detecta el `render.yaml`, configura manualmente:
 
-### Configuración automática
+### ⚠️ Configuración Manual en Render (Recomendado si el servicio ya existe)
 
-1. **Conecta tu repositorio de GitHub a Render**
-2. **Render detectará automáticamente el archivo `render.yaml`** y configurará el servicio
+Si tu servicio en Render ya fue creado manualmente, ve a **Settings** y configura:
 
-### Configuración manual (si es necesario)
+1. **Environment**: `Python 3`
 
-Si prefieres configurar manualmente en el dashboard de Render:
+2. **Build Command**:
+   ```bash
+   pip install --upgrade pip && pip install -r requirements.txt
+   ```
 
-- **Environment**: Python 3
-- **Build Command**: 
-  ```bash
-  pip install poetry==1.8.3 && poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-root
-  ```
-- **Start Command**: 
-  ```bash
-  bash scripts/start_render.sh
-  ```
-- **Health Check Path**: `/api/health`
+3. **Start Command**:
+   ```bash
+   mkdir -p data/models data/raw data/interim data/processed && export PYTHONPATH="${PYTHONPATH}:$(pwd)/src" && uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port $PORT
+   ```
+
+4. **Health Check Path**: `/api/health`
+
+5. **Environment Variables** (opcional, en la sección Environment):
+   - `PYTHONUNBUFFERED`: `1`
+   - `PYTHONPATH`: `/opt/render/project/src`
+
+### Configuración automática (nuevo servicio)
+
+Si creas un **nuevo servicio** desde cero:
+
+1. Conecta tu repositorio de GitHub a Render
+2. Render debería detectar automáticamente el archivo `render.yaml`
+3. Si no lo detecta, usa la configuración manual de arriba
+
+### Solución de problemas comunes
+
+**Error: "Empty build command"**
+- Ve a Settings → Build Command y asegúrate de que esté configurado
+- Usa el Build Command de arriba
+
+**Error: "Publish directory build does not exist"**
+- Esto significa que Render está tratando tu servicio como "Static Site"
+- Asegúrate de que el tipo de servicio sea **"Web Service"** (no "Static Site")
+- Ve a Settings y verifica que el tipo sea correcto
+
+**Error: "Module not found"**
+- Añade la variable de entorno `PYTHONPATH` con valor `/opt/render/project/src`
+- O usa el Start Command completo de arriba que incluye el export
 
 ### Notas importantes para Render
 
-- Render usa la variable de entorno `PORT` automáticamente
+- Render usa la variable de entorno `PORT` automáticamente (no la definas manualmente)
 - Los datos se almacenan en el sistema de archivos del servicio (no persisten entre reinicios)
 - Para datos persistentes, considera usar un servicio de base de datos o almacenamiento externo
 - El frontend estático necesita desplegarse por separado o integrarse con la API
