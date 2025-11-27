@@ -5,10 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: runner-air-planner-api
     ports:
-      - "8001:8000"
+      - "8080:8000"  # Cambiado a 8080 para que coincida con el puerto del frontend
     volumes:
       - ./data:/app/data
       - ./src:/app/src
+      - ./frontend:/app/frontend:ro  # Montar frontend para que FastAPI lo sirva
     environment:
       - PYTHONPATH=/app/src
     command: uvicorn runner_air_planner.api.main:app --host 0.0.0.0 --port 8000
@@ -19,14 +20,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  frontend:
-    image: nginx:alpine
-    container_name: runner-air-planner-frontend
-    ports:
-      - "8080:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-    depends_on:
-      - api
-    restart: unless-stopped
