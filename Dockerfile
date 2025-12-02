@@ -26,8 +26,10 @@ COPY frontend/ ./frontend/
 RUN poetry install --no-interaction --no-ansi || \
     (poetry lock --no-update && poetry install --no-interaction --no-ansi)
 
-# Create data directories (will be mounted as volumes)
+# Create data directories and copy pre-trained model
+# The model (running_model.pkl) is tracked in git, so it should exist after clone
 RUN mkdir -p data/models data/raw data/interim data/processed
+COPY data/ ./data/
 
 # Set PYTHONPATH environment variable to ensure the package can be found
 # This is a fallback in case Poetry doesn't install the package in the expected location
