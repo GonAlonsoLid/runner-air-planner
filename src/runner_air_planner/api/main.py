@@ -284,7 +284,6 @@ async def health():
 @app.get("/api/data/realtime")
 async def get_realtime_data():
     """Get real-time air quality and weather data."""
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
         collector = DataCollector()

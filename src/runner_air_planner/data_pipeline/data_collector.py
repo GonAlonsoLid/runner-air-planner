@@ -334,7 +334,6 @@ class DataCollector:
             # Wind strength indicators
             df["wind_strong"] = (wind > 20).astype(int)
             df["wind_weak"] = (wind < 5).astype(int)
-            df["wind_moderate"] = ((wind >= 5) & (wind <= 20)).astype(int)
 
         # Temperature-O3 synergy (O3 forms more in high temperatures)
         if "weather_temperature_c" in df.columns and "o3" in df.columns:
@@ -342,9 +341,6 @@ class DataCollector:
             o3 = df["o3"].fillna(0)
             # High temp + high O3 = worse
             df["temp_o3_synergy"] = (temp * o3 / 100).fillna(0)
-            df["high_temp_high_o3"] = (
-                (temp > 25) & (o3 > 50)
-            ).astype(int)
 
         # Overall air quality index (weighted combination)
         pollutant_weights = {
