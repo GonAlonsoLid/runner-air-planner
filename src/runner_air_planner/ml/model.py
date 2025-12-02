@@ -101,8 +101,7 @@ class RunningSuitabilityModel:
     def calculate_running_score(self, df: pd.DataFrame) -> pd.Series:
         """Calculate running suitability score (0-100) based on all factors.
         
-        Score más granular que discrimina mejor entre estaciones, produciendo
-        resultados más variados incluso con buenas condiciones.
+        Score más suave que permite comparar estaciones.
         
         Args:
             df: DataFrame with features
@@ -110,152 +109,96 @@ class RunningSuitabilityModel:
         Returns:
             Series with scores (0-100, higher is better)
         """
-        import numpy as np
+        score = pd.Series(100.0, index=df.index)  # Start with perfect score
         
-        # Empezamos con un score base de 70 (permite subir a ~95 máx y bajar a 0)
-        score = pd.Series(70.0, index=df.index)
-        
-        # === CALIDAD DEL AIRE (factor principal, ~40% del score) ===
+        # Penalizar AQI de forma gradual (más suave)
         if "air_quality_index" in df.columns:
-            aqi = df["air_quality_index"].fillna(25)
-            
-            # Bonus/penalización por rangos de AQI
-            score.loc[aqi < 10] += 15  # Excelente
-            score.loc[(aqi >= 10) & (aqi < 20)] += 8  # Muy bueno
-            score.loc[(aqi >= 20) & (aqi < 30)] += 3  # Bueno
-            # AQI 30-40: neutro
-            score.loc[(aqi >= 40) & (aqi < 50)] -= 8  # Regular
-            score.loc[(aqi >= 50) & (aqi < 70)] -= 20  # Malo
-            score.loc[aqi >= 70] -= 35  # Muy malo
-            
-            # Penalización proporcional continua (para granularidad)
-            score -= aqi * 0.25
+            aqi = df["air_quality_index"].fillna(0)
+            # Penalización gradual: -1 punto por cada punto de AQI sobre 20
+            score -= (aqi - 20).clip(lower=0) * 1.5
+            # Penalización fuerte solo si AQI > 70
+            score[aqi > 70] -= 30
         
-        # === CONTAMINANTES ESPECÍFICOS ===
-        pollutant_config = {
-            "no2": {"ideal": 20, "moderate": 50, "high": 80, "penalty": 0.15},
-            "o3": {"ideal": 30, "moderate": 60, "high": 100, "penalty": 0.12},
-            "pm10": {"ideal": 15, "moderate": 35, "high": 50, "penalty": 0.2},
-            "pm25": {"ideal": 8, "moderate": 18, "high": 25, "penalty": 0.25},
+        # Penalizar contaminantes de forma gradual
+        pollutant_penalties = {
+            "no2": {"threshold": 50, "severe": 100, "penalty_per_unit": 0.3, "severe_penalty": 25},
+            "o3": {"threshold": 60, "severe": 120, "penalty_per_unit": 0.25, "severe_penalty": 30},
+            "pm10": {"threshold": 30, "severe": 50, "penalty_per_unit": 0.4, "severe_penalty": 20},
+            "pm25": {"threshold": 15, "severe": 25, "penalty_per_unit": 0.5, "severe_penalty": 25},
         }
         
-        for pollutant, cfg in pollutant_config.items():
+        for pollutant, config in pollutant_penalties.items():
             if pollutant in df.columns:
-                val = df[pollutant].fillna(cfg["moderate"] * 0.8)
-                
-                # Bonus por niveles ideales
-                score.loc[val < cfg["ideal"]] += 3
-                
-                # Penalización gradual desde nivel moderado
-                excess = (val - cfg["moderate"]).clip(lower=0)
-                score -= excess * cfg["penalty"]
-                
-                # Penalización extra por nivel alto
-                score.loc[val >= cfg["high"]] -= 8
+                values = df[pollutant].fillna(0)
+                # Penalización gradual desde el threshold
+                excess = (values - config["threshold"]).clip(lower=0)
+                score -= excess * config["penalty_per_unit"]
+                # Penalización severa si supera el umbral crítico
+                score[values > config["severe"]] -= config["severe_penalty"]
         
-        # === TEMPERATURA ===
-        if "weather_temperature_c" in df.columns:
-            temp = df["weather_temperature_c"].fillna(18)
-            
-            # Temperatura ideal para correr: 12-20°C
-            score.loc[(temp >= 12) & (temp <= 20)] += 6
-            # Aceptable: 8-12°C o 20-25°C
-            score.loc[((temp >= 8) & (temp < 12)) | ((temp > 20) & (temp <= 25))] += 2
-            # Frío: 3-8°C
-            score.loc[(temp >= 3) & (temp < 8)] -= 4
-            # Muy frío: < 3°C
-            score.loc[temp < 3] -= 12
-            # Calor: 25-30°C
-            score.loc[(temp > 25) & (temp <= 30)] -= 6
-            # Mucho calor: > 30°C
-            score.loc[temp > 30] -= 15
-        
-        # === VIENTO ===
-        if "weather_wind_speed_kmh" in df.columns:
-            wind = df["weather_wind_speed_kmh"].fillna(10)
-            
-            # Viento ideal: 8-15 km/h (dispersa contaminación sin ser incómodo)
-            score.loc[(wind >= 8) & (wind <= 15)] += 5
-            # Viento moderado: 15-22 km/h
-            score.loc[(wind > 15) & (wind <= 22)] += 2
-            # Poco viento: < 5 km/h (contaminación se acumula)
-            score.loc[wind < 5] -= 8
-            # Viento fuerte: > 25 km/h (incómodo)
-            score.loc[wind > 25] -= 4
-        
-        # === HUMEDAD ===
-        if "weather_humidity" in df.columns:
-            humidity = df["weather_humidity"].fillna(60)
-            
-            # Humedad ideal: 40-60%
-            score.loc[(humidity >= 40) & (humidity <= 60)] += 3
-            # Muy seco: < 30%
-            score.loc[humidity < 30] -= 2
-            # Muy húmedo: > 80%
-            score.loc[humidity > 80] -= 6
-        
-        # === PRECIPITACIÓN ===
-        if "weather_precipitation_probability" in df.columns:
-            precip_prob = df["weather_precipitation_probability"].fillna(0)
-            
-            # Sin lluvia
-            score.loc[precip_prob <= 10] += 2
-            # Probabilidad media: 30-60%
-            score.loc[(precip_prob > 30) & (precip_prob <= 60)] -= 6
-            # Alta probabilidad: > 60%
-            score.loc[precip_prob > 60] -= 15
-        
-        if "weather_precipitation_mm" in df.columns:
-            precip = df["weather_precipitation_mm"].fillna(0)
-            score -= precip * 6
-            score.loc[precip > 1] -= 10
-        
-        # Mal tiempo (códigos específicos)
+        # Penalizar mal tiempo (pero menos drástico)
         if "weather_code" in df.columns:
             bad_weather = [61, 63, 65, 71, 73, 75, 80, 81, 82, 95, 96, 99]
-            score.loc[df["weather_code"].isin(bad_weather)] -= 25
+            is_bad = df["weather_code"].isin(bad_weather)
+            score[is_bad] -= 40  # Penalización fuerte pero no total
         
-        # === TIPO DE ESTACIÓN ===
-        if "is_suburban_station" in df.columns:
-            score.loc[df["is_suburban_station"] == 1] += 6
+        # Penalizar probabilidad de lluvia de forma gradual
+        if "weather_precipitation_probability" in df.columns:
+            prob = df["weather_precipitation_probability"].fillna(0)
+            # Penalización gradual: -0.5 puntos por cada % sobre 30%
+            score -= (prob - 30).clip(lower=0) * 0.5
+            # Penalización fuerte si > 80%
+            score[prob > 80] -= 20
         
-        if "is_traffic_station" in df.columns:
-            score.loc[df["is_traffic_station"] == 1] -= 8
+        # Penalizar precipitación actual
+        if "weather_precipitation_mm" in df.columns:
+            precip = df["weather_precipitation_mm"].fillna(0)
+            score -= precip * 5  # -5 puntos por cada mm
+            score[precip > 2] -= 15  # Penalización extra si > 2mm
         
-        # === FACTORES DE SINERGIA ===
+        # Bonus por viento fuerte (dispersa contaminación)
         if "wind_strong" in df.columns:
-            score.loc[df["wind_strong"] == 1] += 3
+            score[df["wind_strong"] == 1] += 15
         
+        # Penalizar viento débil (pero menos)
         if "wind_weak" in df.columns:
-            score.loc[df["wind_weak"] == 1] -= 4
+            score[df["wind_weak"] == 1] -= 8
         
-        # === HORA DEL DÍA ===
-        if "hour" in df.columns:
-            hour = df["hour"].fillna(12)
-            
-            # Horas óptimas: 7-10 (mañana) y 18-20 (tarde)
-            optimal = ((hour >= 7) & (hour <= 10)) | ((hour >= 18) & (hour <= 20))
-            score.loc[optimal] += 3
-            
-            # Rush hour en días laborables
-            if "is_weekend" in df.columns:
-                rush = ((hour >= 8) & (hour <= 9)) | ((hour >= 17) & (hour <= 19))
-                score.loc[rush & (df["is_weekend"] == 0)] -= 2
-            
-            # Noche/madrugada
-            score.loc[(hour < 6) | (hour > 22)] -= 4
+        # Bonus por viento moderado
+        if "weather_wind_speed_kmh" in df.columns:
+            wind = df["weather_wind_speed_kmh"].fillna(0)
+            # Bonus si viento está entre 10-20 km/h (ideal)
+            ideal_wind = (wind >= 10) & (wind <= 20)
+            score[ideal_wind] += 5
         
-        # Asegurar rango 5-98 para evitar extremos absolutos
-        # (solo condiciones verdaderamente perfectas/terribles llegan a 98/5)
-        score = score.clip(5, 98).round(1)
+        # Bonus/penalización por temperatura
+        if "weather_temperature_c" in df.columns:
+            temp = df["weather_temperature_c"].fillna(20)
+            # Temperatura ideal: 15-25°C
+            ideal_temp = (temp >= 15) & (temp <= 25)
+            score[ideal_temp] += 5
+            # Penalizar temperaturas extremas
+            score[temp > 30] -= 10
+            score[temp < 5] -= 15
+        
+        # Bonus por zona suburbana
+        if "is_suburban_station" in df.columns:
+            score[df["is_suburban_station"] == 1] += 5
+        
+        # Penalizar zona de tráfico (pero menos)
+        if "is_traffic_station" in df.columns:
+            score[df["is_traffic_station"] == 1] -= 5
+        
+        # Asegurar que el score esté entre 0 y 100
+        score = score.clip(0, 100)
         
         return score
 
     def create_target(self, df: pd.DataFrame) -> pd.Series:
         """Create target variable: is_good_to_run (0/1).
         
-        Basado en el score numérico: score >= 60 = bueno (1), score < 60 = no recomendado (0).
-        El umbral de 60 asegura que solo condiciones genuinamente buenas se marquen como positivas.
+        Basado en el score numérico: score >= 50 = bueno (1), score < 50 = no recomendado (0).
+        Esto hace el modelo menos estricto.
         
         Args:
             df: DataFrame with features
@@ -264,8 +207,8 @@ class RunningSuitabilityModel:
             Series with target values (1 = good to run, 0 = not recommended)
         """
         score = self.calculate_running_score(df)
-        # Umbral de 60: selectivo pero no demasiado estricto
-        target = (score >= 60).astype(int)
+        # Usar umbral más suave: score >= 50 es bueno
+        target = (score >= 50).astype(int)
         return target
 
     def train(self, df: pd.DataFrame) -> dict[str, Any]:
@@ -327,7 +270,7 @@ class RunningSuitabilityModel:
         """Predict running suitability score (0-100).
         
         Combina la predicción del modelo ML con el score calculado para dar
-        una recomendación numérica más precisa y variada.
+        una recomendación numérica más precisa.
         
         Args:
             df: DataFrame with features
@@ -345,18 +288,14 @@ class RunningSuitabilityModel:
         proba = self.predict_proba(df)
         prob_good = proba["prob_good"]
         
-        # Combinar: ponderar 70% score base + 30% confianza del modelo ML
-        # Esto da más peso al cálculo basado en reglas pero permite que el ML
-        # ajuste significativamente el resultado
-        ml_score = prob_good * 100  # Convertir probabilidad a escala 0-100
+        # Combinar: usar el score base pero ajustarlo con la confianza del modelo
+        # Si el modelo tiene alta confianza, ajustar más el score
+        ml_adjustment = (prob_good - 0.5) * 20  # Ajuste de -10 a +10 puntos
         
-        final_score = (base_score * 0.7) + (ml_score * 0.3)
+        final_score = base_score + ml_adjustment
         
         # Asegurar que esté entre 0 y 100
         final_score = final_score.clip(0, 100)
-        
-        # Redondear a 1 decimal
-        final_score = final_score.round(1)
         
         return final_score
 
