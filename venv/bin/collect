@@ -1,0 +1,6 @@
+#!/Users/gonzaloalonsolidon/Desktop/Repos/Cursor/runner-air-planner/venv/bin/python
+import sys
+from runner_air_planner.data_pipeline.cli_collect import main
+
+if __name__ == '__main__':
+    sys.exit(main())
