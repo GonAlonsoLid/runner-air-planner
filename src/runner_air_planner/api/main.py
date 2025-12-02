@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -391,16 +391,24 @@ async def get_historical_data():
 
 
 @app.api_route("/api/predict", methods=["GET", "POST"])
-async def predict(request: PredictionRequest = None):
+async def predict(
+    http_request: Request,
+    body: PredictionRequest = Body(default=None),
+):
     """Run ML model predictions based on current conditions.
     
     By default, uses real-time data to make predictions. This ensures
     predictions are based on the most current air quality and weather conditions.
     
     Supports both GET (for browser testing) and POST (for frontend).
+    GET: Always uses realtime data
+    POST: Can specify {"use_realtime": false} to use historical data
     """
-    # Default to realtime if no request body (GET request)
-    use_realtime = request.use_realtime if request else True
+    # For GET requests, body will be None; for POST, parse from body
+    if http_request.method == "GET":
+        use_realtime = True
+    else:
+        use_realtime = body.use_realtime if body else True
     
     try:
         # Load model
