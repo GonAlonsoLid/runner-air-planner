@@ -390,13 +390,18 @@ async def get_historical_data():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/predict")
-async def predict(request: PredictionRequest):
+@app.api_route("/api/predict", methods=["GET", "POST"])
+async def predict(request: PredictionRequest = None):
     """Run ML model predictions based on current conditions.
     
     By default, uses real-time data to make predictions. This ensures
     predictions are based on the most current air quality and weather conditions.
+    
+    Supports both GET (for browser testing) and POST (for frontend).
     """
+    # Default to realtime if no request body (GET request)
+    use_realtime = request.use_realtime if request else True
+    
     try:
         # Load model
         if not MODEL_PATH.exists():
@@ -406,7 +411,7 @@ async def predict(request: PredictionRequest):
             model: RunningSuitabilityModel = pickle.load(f)
         
         # Always use real-time data for predictions (current conditions)
-        if request.use_realtime:
+        if use_realtime:
             loop = asyncio.get_event_loop()
             collector = DataCollector()
             
@@ -463,7 +468,7 @@ async def predict(request: PredictionRequest):
             station_lon = station_info.get("longitude")
             
             station_weather = None
-            if station_lat and station_lon and request.use_realtime:
+            if station_lat and station_lon and use_realtime:
                 try:
                     station_weather = await loop.run_in_executor(
                         None,
@@ -473,7 +478,7 @@ async def predict(request: PredictionRequest):
                     pass
             
             # Get weather forecast for fallback
-            forecast = weather_forecast if request.use_realtime else None
+            forecast = weather_forecast if use_realtime else None
             
             # Obtener running_score ANTES de generar la explicación
             running_score = float(row.get("running_score", 0)) if pd.notna(row.get("running_score")) else 0
@@ -519,7 +524,7 @@ async def predict(request: PredictionRequest):
             "total": len(results),
             "good_count": sum(1 for r in results if r["is_good_to_run"]),
             "timestamp": datetime.now().isoformat(),
-            "data_source": "realtime" if request.use_realtime else "historical",
+            "data_source": "realtime" if use_realtime else "historical",
         }
     except Exception as e:
         import traceback
