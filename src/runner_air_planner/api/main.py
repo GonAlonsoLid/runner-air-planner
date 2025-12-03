@@ -264,9 +264,20 @@ if FRONTEND_DIR.exists():
     @app.get("/app.js")
     async def serve_js():
         """Serve JavaScript file."""
+        from fastapi.responses import Response
         js_path = FRONTEND_DIR / "app.js"
         if js_path.exists():
-            return FileResponse(str(js_path), media_type="application/javascript")
+            with open(js_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return Response(
+                content=content,
+                media_type="application/javascript",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
         raise HTTPException(status_code=404, detail="JS not found")
 else:
     @app.get("/")

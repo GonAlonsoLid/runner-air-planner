@@ -8,6 +8,7 @@ let markers = [];
 let currentData = null;
 let activeAnimations = {}; // Track active animations to cancel them if needed
 let hasActivePredictions = false; // Track if predictions are active
+let lastPredictionGoodCount = null; // Store the last prediction count to preserve it
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -168,6 +169,11 @@ async function runPredictions() {
         const data = await response.json();
         
         if (data.predictions && data.predictions.length > 0) {
+            console.log('[runPredictions] Predictions received:', {
+                total: data.total,
+                good_count: data.good_count,
+                predictions_length: data.predictions.length
+            });
             hasActivePredictions = true; // Mark predictions as active
             updatePredictions(data);
             updateMapWithPredictions(data.predictions);
@@ -175,6 +181,7 @@ async function runPredictions() {
             updateHeroStatsFromPredictions(data);
             showToast(`✅ ${data.good_count} lugares buenos para correr`, 'success');
         } else {
+            console.warn('[runPredictions] No predictions in response');
             hasActivePredictions = false;
             showToast('No se pudieron generar predicciones', 'error');
         }
@@ -224,20 +231,49 @@ function updateHeroStats(data) {
     // (predictions have their own update function that should take precedence)
     if (!hasActivePredictions) {
         animateValue('hero-good', 0, goodCount, 1000, 0);
+    } else if (lastPredictionGoodCount !== null) {
+        // If predictions are active, preserve the prediction count
+        const heroGoodEl = document.getElementById('hero-good');
+        if (heroGoodEl && (heroGoodEl.textContent === '0' || heroGoodEl.textContent === '--')) {
+            heroGoodEl.textContent = lastPredictionGoodCount.toFixed(0);
+            console.log('[updateHeroStats] Preserved prediction count:', lastPredictionGoodCount);
+        }
     }
 }
 
 // Update Hero Stats from Predictions
 function updateHeroStatsFromPredictions(data) {
-    if (!data.predictions || data.predictions.length === 0) return;
+    console.log('[updateHeroStatsFromPredictions] Called with data:', data);
+    if (!data.predictions || data.predictions.length === 0) {
+        console.warn('[updateHeroStatsFromPredictions] No predictions data available');
+        return;
+    }
     
     const predictions = data.predictions;
     const avgAqi = predictions.reduce((sum, p) => sum + (p.aqi || 0), 0) / predictions.length;
     const goodCount = data.good_count ?? predictions.filter(p => p.is_good_to_run).length ?? 0;
     
+    // Store the prediction count to preserve it
+    lastPredictionGoodCount = goodCount;
+    
+    console.log('[updateHeroStatsFromPredictions] Updating hero stats:', {
+        stations: predictions.length,
+        avgAqi,
+        goodCount
+    });
+    
     animateValue('hero-stations', 0, predictions.length, 800, 0);
     animateValue('hero-aqi', 0, avgAqi, 1000, 1);
     animateValue('hero-good', 0, goodCount, 1000, 0);
+    
+    // Force update after animation to ensure value is set and persists
+    setTimeout(() => {
+        const heroGoodEl = document.getElementById('hero-good');
+        if (heroGoodEl) {
+            heroGoodEl.textContent = goodCount.toFixed(0);
+            console.log('[updateHeroStatsFromPredictions] Forced hero-good update to:', goodCount);
+        }
+    }, 1100);
 }
 
 // Update Metrics
