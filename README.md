@@ -36,9 +36,8 @@ docker-compose down
 ```
 
 **La aplicación estará disponible en:**
-- **Frontend**: http://localhost:8080
-- **API**: http://localhost:8001
-- **API Health Check**: http://localhost:8001/api/health
+- **Frontend + API**: http://localhost:8080
+- **API Health Check**: http://localhost:8080/api/health
 
 ### Comandos útiles con Docker
 
@@ -107,8 +106,7 @@ python -m http.server 8080
 ```
 
 **La aplicación estará disponible en:**
-- **Frontend**: http://localhost:8080
-- **API**: http://localhost:8001
+- **Frontend + API**: http://localhost:8000 (o el puerto que especifiques)
 
 ## 📊 Uso
 
@@ -130,8 +128,17 @@ La API de Madrid solo devuelve datos del día actual (~300-400 registros). Para 
 # Ejecutar varias veces (cada 1-2 horas)
 docker-compose exec api poetry run collect --accumulate
 
-# O automático con el script
-python scripts/collect_multiple_days.py --min-records 1000 --interval-hours 1
+# O automático con el script (corre en background cada 30 min hasta 2000 registros)
+PYTHONUNBUFFERED=1 nohup python scripts/collect_multiple_days.py \
+  --min-records 2000 \
+  --interval-hours 0.5 \
+  --max-iterations 200 > data/collection.log 2>&1 &
+
+# Ver progreso
+tail -f data/collection.log
+
+# Ver procesos de recolección activos
+ps aux | grep collect_multiple_days | grep -v grep
 ```
 
 ### 3. Entrenar modelo
@@ -156,9 +163,9 @@ poetry run predict
 
 ### 5. Visualizar en Frontend
 
-Abre http://localhost:8080 en tu navegador (si usas Docker) o http://localhost:8080 si ejecutas el servidor localmente.
+Abre http://localhost:8080 en tu navegador (si usas Docker) o http://localhost:8000 si ejecutas localmente con uvicorn.
 
-El frontend se conecta automáticamente a la API en http://localhost:8001.
+El frontend y la API se sirven desde el mismo servidor (FastAPI sirve los archivos estáticos).
 
 ## 🏗️ Estructura del Proyecto
 
@@ -183,15 +190,15 @@ runner-air-planner/
 │   ├── app.js
 │   └── styles.css
 ├── scripts/
-│   ├── collect_multiple_days.py  # Script para recopilar datos automáticamente
-│   └── docker-entrypoint.sh       # Script de entrada para Docker
+│   └── collect_multiple_days.py  # Script para recopilar datos automáticamente
 ├── data/                         # Datasets y modelos
 │   ├── ml_dataset_accumulated.csv
 │   └── models/
 │       └── running_model.pkl
 ├── Dockerfile                    # Imagen Docker para la API
 ├── docker-compose.yml            # Configuración Docker Compose
-└── pyproject.toml                # Gestión con Poetry
+├── pyproject.toml                # Gestión con Poetry
+└── .pre-commit-config.yaml       # Configuración de pre-commit hooks
 ```
 
 ## 📈 Dataset para ML
@@ -237,10 +244,10 @@ La API FastAPI proporciona los siguientes endpoints:
 
 ```bash
 # Obtener datos en tiempo real
-curl http://localhost:8001/api/data/realtime
+curl http://localhost:8080/api/data/realtime
 
 # Hacer predicciones
-curl -X POST http://localhost:8001/api/predict \
+curl -X POST http://localhost:8080/api/predict \
   -H "Content-Type: application/json" \
   -d '{"use_realtime": true}'
 ```
@@ -268,16 +275,38 @@ poetry install
 ```
 
 ### Puerto ocupado
-Si el puerto 8001 o 8080 están ocupados, puedes cambiarlos en `docker-compose.yml`:
+Si el puerto 8080 está ocupado, puedes cambiarlo en `docker-compose.yml`:
 ```yaml
 ports:
-  - "8002:8000"  # Cambia 8001 a 8002
+  - "9000:8000"  # Cambia 8080 a 9000
 ```
 
-### El frontend no se conecta a la API
+### El frontend no carga
 Verifica que:
-1. La API esté corriendo en http://localhost:8001
-2. El frontend esté accediendo a la URL correcta (ver `frontend/app.js`)
+1. La API esté corriendo (Docker o uvicorn)
+2. Limpia el caché del navegador: `Cmd + Shift + R` (Mac) o `Ctrl + Shift + R` (Windows/Linux)
+
+## 🛠️ Desarrollo
+
+### Pre-commit hooks
+
+El proyecto usa pre-commit para mantener la calidad del código:
+
+```bash
+# Instalar pre-commit
+pip install pre-commit
+pre-commit install
+
+# Ejecutar en todos los archivos
+pre-commit run --all-files
+```
+
+Hooks configurados:
+- `trailing-whitespace` - elimina espacios al final
+- `end-of-file-fixer` - asegura newline al final
+- `check-yaml` - valida archivos YAML
+- `ruff` - linting con autofix
+- `ruff-format` - formato de código
 
 ## ☁️ Despliegue en Render con Docker
 
