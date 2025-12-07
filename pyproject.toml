@@ -20,6 +20,7 @@ pydantic = "^2.5"
 pytest = "^8.0"
 black = "^24.0"
 ruff = "^0.6.0"
+pre-commit = "^3.8"
 
 [tool.poetry.scripts]
 collect = "runner_air_planner.data_pipeline.cli_collect:main"
