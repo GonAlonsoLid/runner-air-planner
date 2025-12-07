@@ -88,12 +88,12 @@ class WeatherClient:
         timeout: int = DEFAULT_TIMEOUT,
     ) -> WeatherForecast:
         """Fetch 1-hour ahead weather forecast for a specific location.
-        
+
         Args:
             latitude: Latitude of the location
             longitude: Longitude of the location
             timeout: Request timeout in seconds
-            
+
         Returns:
             WeatherForecast with 1-hour ahead predictions
         """
@@ -104,12 +104,16 @@ class WeatherClient:
             "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,precipitation,cloud_cover,precipitation_probability",
             "forecast_hours": 1,
         }
-        
+
         try:
-            response = self._session.get(WEATHER_API_URL, params=params, timeout=timeout)
+            response = self._session.get(
+                WEATHER_API_URL, params=params, timeout=timeout
+            )
             response.raise_for_status()
         except requests.RequestException as error:
-            raise WeatherServiceError(f"No se pudo consultar la predicción meteorológica para {latitude},{longitude}") from error
+            raise WeatherServiceError(
+                f"No se pudo consultar la predicción meteorológica para {latitude},{longitude}"
+            ) from error
 
         payload = response.json()
         hourly = payload.get("hourly")
@@ -119,7 +123,7 @@ class WeatherClient:
         times = hourly.get("time", [])
         if not times or len(times) == 0:
             raise WeatherServiceError("No hay datos de predicción disponibles")
-        
+
         forecast_datetime = self._parse_datetime(times[0])
         if forecast_datetime is None:
             raise WeatherServiceError("No se pudo parsear la hora de predicción")
@@ -137,7 +141,9 @@ class WeatherClient:
         wind_speed = _coerce_float(wind_speeds[0] if len(wind_speeds) > 0 else None)
         code = _coerce_int(weather_codes[0] if len(weather_codes) > 0 else None)
         description = WEATHER_CODE_DESCRIPTIONS.get(code) if code is not None else None
-        precipitation = _coerce_float(precipitations[0] if len(precipitations) > 0 else None)
+        precipitation = _coerce_float(
+            precipitations[0] if len(precipitations) > 0 else None
+        )
         cloud_cover = _coerce_int(cloud_covers[0] if len(cloud_covers) > 0 else None)
         precip_prob = _coerce_int(precip_probs[0] if len(precip_probs) > 0 else None)
 
@@ -155,13 +161,13 @@ class WeatherClient:
 
     def fetch_current_weather(self, *, timeout: int = DEFAULT_TIMEOUT) -> WeatherReport:
         """Fetch current weather conditions for Madrid.
-        
+
         Args:
             timeout: Request timeout in seconds
-            
+
         Returns:
             WeatherReport with current conditions
-            
+
         Raises:
             WeatherServiceError: If the API request fails
         """
@@ -171,10 +177,14 @@ class WeatherClient:
             "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,precipitation,cloud_cover",
         }
         try:
-            response = self._session.get(WEATHER_API_URL, params=params, timeout=timeout)
+            response = self._session.get(
+                WEATHER_API_URL, params=params, timeout=timeout
+            )
             response.raise_for_status()
         except requests.RequestException as error:
-            raise WeatherServiceError("No se pudo consultar el servicio meteorológico") from error
+            raise WeatherServiceError(
+                "No se pudo consultar el servicio meteorológico"
+            ) from error
 
         payload = response.json()
         current = payload.get("current")
@@ -191,7 +201,9 @@ class WeatherClient:
         cloud_cover = _coerce_int(current.get("cloud_cover"))
 
         if observed_at is None:
-            raise WeatherServiceError("No se pudo determinar la hora de la medición meteorológica")
+            raise WeatherServiceError(
+                "No se pudo determinar la hora de la medición meteorológica"
+            )
 
         return WeatherReport(
             observed_at=observed_at,
@@ -204,15 +216,17 @@ class WeatherClient:
             cloud_cover=cloud_cover,
         )
 
-    def fetch_1hour_forecast(self, *, timeout: int = DEFAULT_TIMEOUT) -> WeatherForecast:
+    def fetch_1hour_forecast(
+        self, *, timeout: int = DEFAULT_TIMEOUT
+    ) -> WeatherForecast:
         """Fetch 1-hour ahead weather forecast for Madrid.
-        
+
         Args:
             timeout: Request timeout in seconds
-            
+
         Returns:
             WeatherForecast with 1-hour ahead predictions
-            
+
         Raises:
             WeatherServiceError: If the API request fails
         """
@@ -222,12 +236,16 @@ class WeatherClient:
             "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,precipitation,cloud_cover,precipitation_probability",
             "forecast_hours": 1,
         }
-        
+
         try:
-            response = self._session.get(WEATHER_API_URL, params=params, timeout=timeout)
+            response = self._session.get(
+                WEATHER_API_URL, params=params, timeout=timeout
+            )
             response.raise_for_status()
         except requests.RequestException as error:
-            raise WeatherServiceError("No se pudo consultar la predicción meteorológica") from error
+            raise WeatherServiceError(
+                "No se pudo consultar la predicción meteorológica"
+            ) from error
 
         payload = response.json()
         hourly = payload.get("hourly")
@@ -238,7 +256,7 @@ class WeatherClient:
         times = hourly.get("time", [])
         if not times or len(times) == 0:
             raise WeatherServiceError("No hay datos de predicción disponibles")
-        
+
         # Parse forecast time (first hour in the response)
         forecast_datetime = self._parse_datetime(times[0])
         if forecast_datetime is None:
@@ -258,7 +276,9 @@ class WeatherClient:
         wind_speed = _coerce_float(wind_speeds[0] if len(wind_speeds) > 0 else None)
         code = _coerce_int(weather_codes[0] if len(weather_codes) > 0 else None)
         description = WEATHER_CODE_DESCRIPTIONS.get(code) if code is not None else None
-        precipitation = _coerce_float(precipitations[0] if len(precipitations) > 0 else None)
+        precipitation = _coerce_float(
+            precipitations[0] if len(precipitations) > 0 else None
+        )
         cloud_cover = _coerce_int(cloud_covers[0] if len(cloud_covers) > 0 else None)
         precip_prob = _coerce_int(precip_probs[0] if len(precip_probs) > 0 else None)
 
@@ -280,7 +300,7 @@ class WeatherClient:
         if not value:
             return None
         try:
-            return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         except ValueError:
             return None
 

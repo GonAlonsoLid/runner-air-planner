@@ -9,6 +9,7 @@ from pathlib import Path
 # Configurar encoding UTF-8 para Windows
 if sys.platform == "win32":
     import io
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -61,23 +62,26 @@ def main() -> None:
         default=1000,
         help="Mínimo de registros requeridos (default: 1000)",
     )
-    
+
     args = parser.parse_args()
-    
+
     print("=" * 80)
     print("RECOPILACIÓN DE DATOS PARA MODELO DE ML")
     print("=" * 80)
     print()
-    
+
     collector = DataCollector()
-    
+
     # Collect air quality data
     print("📊 Recopilando datos de calidad del aire...")
     try:
         if args.air_quality_csv and args.air_quality_csv.exists():
             import pandas as pd
+
             air_quality_df = pd.read_csv(args.air_quality_csv)
-            air_quality_df["measurement_time"] = pd.to_datetime(air_quality_df["measurement_time"])
+            air_quality_df["measurement_time"] = pd.to_datetime(
+                air_quality_df["measurement_time"]
+            )
             print(f"   ✓ Cargado desde: {args.air_quality_csv}")
         else:
             air_quality_df = collector.collect_air_quality_data()
@@ -85,11 +89,13 @@ def main() -> None:
     except Exception as e:
         print(f"   ❌ Error: {e}")
         sys.exit(1)
-    
+
     # Collect weather data
     print("🌤️  Recopilando datos meteorológicos...")
     try:
-        weather_report = collector.get_weather_data(force_refresh=args.force_weather_refresh)
+        weather_report = collector.get_weather_data(
+            force_refresh=args.force_weather_refresh
+        )
         print(f"   ✓ Temperatura: {weather_report.temperature_c:.1f}°C")
         print(f"   ✓ Humedad: {weather_report.relative_humidity:.0f}%")
         print(f"   ✓ Viento: {weather_report.wind_speed_kmh:.1f} km/h")
@@ -97,7 +103,7 @@ def main() -> None:
     except Exception as e:
         print(f"   ❌ Error: {e}")
         sys.exit(1)
-    
+
     # Create ML dataset
     print()
     print("🔧 Creando dataset para modelo de ML...")
@@ -108,7 +114,7 @@ def main() -> None:
             weather_report=weather_report,
             min_records=args.min_records,
         )
-        
+
         # Accumulate if requested
         if args.accumulate:
             print("   📦 Acumulando con datos históricos...")
@@ -126,45 +132,55 @@ def main() -> None:
                 air_quality_df=air_quality_df,
                 weather_report=weather_report,
             )
-        
+
         # Show summary
         print(f"   ✓ Dataset: {output_path}")
         print(f"   ✓ Estaciones: {ml_df['station_code'].nunique()}")
         print(f"   ✓ Features: {len(ml_df.columns)}")
         print(f"   ✓ Filas: {len(ml_df)}")
-        
+
         # Check minimum records
         if len(ml_df) < args.min_records:
             print()
-            print(f"   ⚠️  ADVERTENCIA: Solo {len(ml_df)} registros (mínimo requerido: {args.min_records})")
-            print(f"   💡 Usa --accumulate para acumular datos de múltiples ejecuciones")
+            print(
+                f"   ⚠️  ADVERTENCIA: Solo {len(ml_df)} registros (mínimo requerido: {args.min_records})"
+            )
+            print("   💡 Usa --accumulate para acumular datos de múltiples ejecuciones")
         print()
         print("📋 Columnas principales:")
         key_columns = [
-            "station_code", "station_name", "station_type",
-            "no2", "o3", "pm10", "pm25",
-            "weather_wind_speed_kmh", "weather_temperature_c",
-            "hour", "is_rush_hour",
-            "air_quality_index", "running_suitability_preliminary",
+            "station_code",
+            "station_name",
+            "station_type",
+            "no2",
+            "o3",
+            "pm10",
+            "pm25",
+            "weather_wind_speed_kmh",
+            "weather_temperature_c",
+            "hour",
+            "is_rush_hour",
+            "air_quality_index",
+            "running_suitability_preliminary",
         ]
         for col in key_columns:
             if col in ml_df.columns:
                 print(f"   - {col}")
-        
+
         print()
         print("=" * 80)
         print("✅ DATASET LISTO PARA EL MODELO DE ML")
         print("=" * 80)
         print(f"\nArchivo guardado en: {output_path}")
         print("\nPuedes usar este dataset para entrenar tu modelo de ML.")
-        
+
     except Exception as e:
         print(f"   ❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-

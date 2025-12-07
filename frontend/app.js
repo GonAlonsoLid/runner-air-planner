@@ -24,24 +24,24 @@ function initMap() {
         zoom: 11,
         zoomControl: true,
     });
-    
+
     // Dark theme tile layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '© OpenStreetMap contributors © CARTO',
         maxZoom: 19,
     }).addTo(map);
-    
+
     // Add other layers
     const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Esri',
         maxZoom: 19,
     });
-    
+
     const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 19,
     });
-    
+
     const baseMaps = {
         "Modo Oscuro": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '© OpenStreetMap contributors © CARTO',
@@ -50,7 +50,7 @@ function initMap() {
         "Satélite": satelliteLayer,
         "OpenStreetMap": osmLayer,
     };
-    
+
     L.control.layers(baseMaps).addTo(map);
 }
 
@@ -74,16 +74,16 @@ async function loadHistoricalData() {
         const response = await fetch(`${API_BASE_FETCH}/api/data/historical`, {
             signal: AbortSignal.timeout(15000) // 15 second timeout
         });
-        
+
         console.log('Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log('Historical data received:', data);
-        
+
         if (data.stations && data.stations.length > 0) {
             console.log('Processing', data.stations.length, 'stations');
             currentData = data;
@@ -119,23 +119,23 @@ async function updateRealtimeData() {
     const btn = document.getElementById('btn-update');
     if (btn) btn.disabled = true;
     showLoading();
-    
+
     try {
         console.log('Loading realtime data from:', `${API_BASE_FETCH}/api/data/realtime`);
         const response = await fetch(`${API_BASE_FETCH}/api/data/realtime`, {
             signal: AbortSignal.timeout(30000) // 30 second timeout
         });
-        
+
         console.log('Response status:', response.status);
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
         }
-        
+
         const data = await response.json();
         console.log('Realtime data received:', data);
-        
+
         if (data.stations && data.stations.length > 0) {
             currentData = data;
             updateAll(data);
@@ -157,7 +157,7 @@ async function runPredictions() {
     const btn = document.getElementById('btn-predict');
     btn.disabled = true;
     showLoading();
-    
+
     try {
         const useRealtime = !!(currentData && currentData.timestamp);
         const response = await fetch(`${API_BASE_FETCH}/api/predict`, {
@@ -165,9 +165,9 @@ async function runPredictions() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ use_realtime: useRealtime }),
         });
-        
+
         const data = await response.json();
-        
+
         if (data.predictions && data.predictions.length > 0) {
             console.log('[runPredictions] Predictions received:', {
                 total: data.total,
@@ -220,11 +220,11 @@ function updateAll(data) {
 // Update Hero Stats
 function updateHeroStats(data) {
     if (!data.stations) return;
-    
+
     const stations = data.stations;
     const avgAqi = stations.reduce((sum, s) => sum + (s.aqi || 0), 0) / stations.length;
     const goodCount = stations.filter(s => s.is_good_to_run).length || 0;
-    
+
     animateValue('hero-stations', 0, stations.length, 800, 0);
     animateValue('hero-aqi', 0, avgAqi, 1000, 1);
     // Only update hero-good if there are no active predictions
@@ -248,24 +248,24 @@ function updateHeroStatsFromPredictions(data) {
         console.warn('[updateHeroStatsFromPredictions] No predictions data available');
         return;
     }
-    
+
     const predictions = data.predictions;
     const avgAqi = predictions.reduce((sum, p) => sum + (p.aqi || 0), 0) / predictions.length;
     const goodCount = data.good_count ?? predictions.filter(p => p.is_good_to_run).length ?? 0;
-    
+
     // Store the prediction count to preserve it
     lastPredictionGoodCount = goodCount;
-    
+
     console.log('[updateHeroStatsFromPredictions] Updating hero stats:', {
         stations: predictions.length,
         avgAqi,
         goodCount
     });
-    
+
     animateValue('hero-stations', 0, predictions.length, 800, 0);
     animateValue('hero-aqi', 0, avgAqi, 1000, 1);
     animateValue('hero-good', 0, goodCount, 1000, 0);
-    
+
     // Force update after animation to ensure value is set and persists
     setTimeout(() => {
         const heroGoodEl = document.getElementById('hero-good');
@@ -279,36 +279,36 @@ function updateHeroStatsFromPredictions(data) {
 // Update Metrics
 function updateMetrics(data) {
     if (!data.stations || data.stations.length === 0) return;
-    
+
     try {
         const stations = data.stations;
         const avgAqi = stations.reduce((sum, s) => sum + (s.aqi || 0), 0) / stations.length;
-        
+
         const aqiEl = document.getElementById('metric-aqi');
         if (aqiEl) animateValue('metric-aqi', 0, avgAqi, 1000, 1);
-        
+
         const aqiBadge = document.getElementById('aqi-badge');
         if (aqiBadge) {
             aqiBadge.textContent = getAqiLabel(avgAqi);
             aqiBadge.className = 'card-badge ' + getAqiBadgeClass(avgAqi);
         }
-        
+
         // Average pollutants
         const no2Stations = stations.filter(s => s.no2 !== null && s.no2 !== undefined);
         const o3Stations = stations.filter(s => s.o3 !== null && s.o3 !== undefined);
         const pm10Stations = stations.filter(s => s.pm10 !== null && s.pm10 !== undefined);
         const pm25Stations = stations.filter(s => s.pm25 !== null && s.pm25 !== undefined);
-        
+
         const avgNo2 = no2Stations.length > 0 ? no2Stations.reduce((sum, s) => sum + s.no2, 0) / no2Stations.length : 0;
         const avgO3 = o3Stations.length > 0 ? o3Stations.reduce((sum, s) => sum + s.o3, 0) / o3Stations.length : 0;
         const avgPm10 = pm10Stations.length > 0 ? pm10Stations.reduce((sum, s) => sum + s.pm10, 0) / pm10Stations.length : 0;
         const avgPm25 = pm25Stations.length > 0 ? pm25Stations.reduce((sum, s) => sum + s.pm25, 0) / pm25Stations.length : 0;
-        
+
         const no2El = document.getElementById('metric-no2');
         const o3El = document.getElementById('metric-o3');
         const pm10El = document.getElementById('metric-pm10');
         const pm25El = document.getElementById('metric-pm25');
-        
+
         if (no2El) no2El.textContent = avgNo2 > 0 ? avgNo2.toFixed(1) : '--';
         if (o3El) o3El.textContent = avgO3 > 0 ? avgO3.toFixed(1) : '--';
         if (pm10El) pm10El.textContent = avgPm10 > 0 ? avgPm10.toFixed(1) : '--';
@@ -324,14 +324,14 @@ function updateWeather(weather) {
         console.log('No weather data available');
         return;
     }
-    
+
     console.log('Updating weather with data:', weather);
-    
+
     const card = document.getElementById('weather-card');
     if (card) {
         card.style.display = 'block';
     }
-    
+
     // Update icon based on weather
     const icon = document.getElementById('weather-icon');
     if (icon && weather.weather_code !== null && weather.weather_code !== undefined) {
@@ -349,7 +349,7 @@ function updateWeather(weather) {
             icon.textContent = '☀️';
         }
     }
-    
+
     // Update temperature
     const tempEl = document.getElementById('weather-temp');
     if (tempEl && weather.temperature !== null && weather.temperature !== undefined) {
@@ -369,7 +369,7 @@ function updateWeather(weather) {
     } else {
         console.log('Temperature not available:', weather.temperature);
     }
-    
+
     // Update humidity
     const humidityEl = document.getElementById('weather-humidity');
     if (humidityEl && weather.humidity !== null && weather.humidity !== undefined) {
@@ -378,7 +378,7 @@ function updateWeather(weather) {
             humidityEl.textContent = humidityValue.toFixed(0) + '%';
         }
     }
-    
+
     // Update wind speed
     const windEl = document.getElementById('weather-wind');
     if (windEl && weather.wind_speed !== null && weather.wind_speed !== undefined) {
@@ -387,13 +387,13 @@ function updateWeather(weather) {
             windEl.textContent = windValue.toFixed(1) + ' km/h';
         }
     }
-    
+
     // Update description
     const descEl = document.getElementById('weather-desc');
     if (descEl && weather.description) {
         descEl.textContent = weather.description;
     }
-    
+
     // Show forecast indicator
     if (weather.is_forecast) {
         const cardHeader = card ? card.querySelector('.card-header') : null;
@@ -411,11 +411,11 @@ function updateWeather(weather) {
 function updatePredictions(data) {
     const card = document.getElementById('predictions-card');
     card.style.display = 'block';
-    
+
     document.getElementById('prediction-status').textContent = 'Ejecutado';
     document.getElementById('prediction-status').style.background = 'var(--success)';
     document.getElementById('prediction-status').style.color = 'white';
-    
+
     animateValue('pred-good-count', 0, data.good_count, 800, 0);
     animateValue('pred-bad-count', 0, data.total - data.good_count, 800, 0);
 }
@@ -424,13 +424,13 @@ function updatePredictions(data) {
 function updateMap(stations) {
     markers.forEach(marker => map.removeLayer(marker));
     markers = [];
-    
+
     stations.forEach((station, index) => {
         if (!station.latitude || !station.longitude) return;
-        
+
         const aqi = station.aqi || 0;
         const color = getAqiColor(aqi);
-        
+
         const marker = L.circleMarker([station.latitude, station.longitude], {
             radius: station.temperature ? Math.max(8, Math.min(20, station.temperature / 2)) : 10,
             fillColor: color,
@@ -439,10 +439,10 @@ function updateMap(stations) {
             opacity: 1,
             fillOpacity: 0.7,
         });
-        
+
         const popup = createPopup(station, color);
         marker.bindPopup(popup, { maxWidth: 300, className: 'custom-popup' });
-        
+
         setTimeout(() => {
             marker.addTo(map);
             markers.push(marker);
@@ -454,13 +454,13 @@ function updateMap(stations) {
 function updateMapWithPredictions(predictions) {
     markers.forEach(marker => map.removeLayer(marker));
     markers = [];
-    
+
     predictions.forEach((station, index) => {
         if (!station.latitude || !station.longitude) return;
-        
+
         const aqi = station.aqi || 0;
         const color = getAqiColor(aqi);
-        
+
         const marker = L.circleMarker([station.latitude, station.longitude], {
             radius: station.temperature ? Math.max(8, Math.min(20, station.temperature / 2)) : 10,
             fillColor: color,
@@ -469,10 +469,10 @@ function updateMapWithPredictions(predictions) {
             opacity: 1,
             fillOpacity: station.is_good_to_run ? 0.9 : 0.7,
         });
-        
+
         const popup = createPopupWithPrediction(station, color);
         marker.bindPopup(popup, { maxWidth: 300, className: 'custom-popup' });
-        
+
         setTimeout(() => {
             marker.addTo(map);
             markers.push(marker);
@@ -489,7 +489,7 @@ function createPopup(station, color) {
             <div style="background: ${color}20; padding: 0.75rem; border-radius: 8px; margin: 0.75rem 0; border-left: 3px solid ${color};">
                 <div style="color: ${color}; font-weight: 700; margin-bottom: 0.25rem;">AQI: ${station.aqi.toFixed(1)}</div>
                 <div style="font-size: 0.85rem; color: #a1a1aa;">
-                    NO₂: ${station.no2 !== null ? station.no2.toFixed(1) : '--'} | 
+                    NO₂: ${station.no2 !== null ? station.no2.toFixed(1) : '--'} |
                     O₃: ${station.o3 !== null ? station.o3.toFixed(1) : '--'}
                 </div>
             </div>
@@ -505,10 +505,10 @@ function createPopup(station, color) {
 
 // Create Popup with Prediction
 function createPopupWithPrediction(station, color) {
-    const prediction = station.is_good_to_run 
+    const prediction = station.is_good_to_run
         ? '<div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(16, 185, 129, 0.2); border-radius: 6px; text-align: center; font-weight: 600; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">✅ Bueno para correr</div>'
         : '<div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(239, 68, 68, 0.2); border-radius: 6px; text-align: center; font-weight: 600; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">❌ No recomendado</div>';
-    
+
     return createPopup(station, color) + prediction;
 }
 
@@ -517,19 +517,19 @@ function createPopupWithPrediction(station, color) {
 function updateTopStations(predictions) {
     const list = document.getElementById('stations-list');
     list.innerHTML = '';
-    
+
     predictions.slice(0, 5).forEach((station, index) => {
         const item = document.createElement('div');
         item.className = 'station-item';
         item.style.animationDelay = `${index * 0.1}s`;
         item.style.opacity = '0';
         item.style.animation = 'fadeInUp 0.5s ease forwards';
-        
+
         const explanation = station.explanation || {};
         const reasons = explanation.reasons || [];
         const warnings = explanation.warnings || [];
         const summary = explanation.summary || '';
-        
+
         // Crear HTML de explicación
         let explanationHTML = '';
         if (reasons.length > 0 || warnings.length > 0 || summary) {
@@ -555,7 +555,7 @@ function updateTopStations(predictions) {
                 </div>
             `;
         }
-        
+
         item.innerHTML = `
             <div class="station-info">
                 <div class="station-name">${station.station_name}</div>
@@ -583,7 +583,7 @@ function updateTopStations(predictions) {
                 </button>
             </div>
         `;
-        
+
         // Toggle explicación
         const toggleBtn = item.querySelector('.explanation-toggle');
         const explanationDiv = item.querySelector('.station-explanation');
@@ -595,7 +595,7 @@ function updateTopStations(predictions) {
                 toggleBtn.textContent = isVisible ? '📊 Ver detalles' : '📊 Ocultar detalles';
             });
         }
-        
+
         // Click en el item para centrar en el mapa
         item.addEventListener('click', (e) => {
             if (e.target !== toggleBtn && !toggleBtn.contains(e.target)) {
@@ -603,7 +603,7 @@ function updateTopStations(predictions) {
                 showToast(`Centrado en ${station.station_name}`, 'success');
             }
         });
-        
+
         list.appendChild(item);
     });
 }
@@ -620,31 +620,31 @@ function fitMapBounds() {
 function animateValue(id, start, end, duration, decimals) {
     const element = document.getElementById(id);
     if (!element) return;
-    
+
     // Cancel any existing animation for this element
     if (activeAnimations[id]) {
         clearInterval(activeAnimations[id]);
         delete activeAnimations[id];
     }
-    
+
     // Try to read current value from element, fallback to start
     let currentStart = start;
     const currentText = element.textContent;
     if (currentText && currentText !== '--' && !isNaN(parseFloat(currentText))) {
         currentStart = parseFloat(currentText);
     }
-    
+
     const range = end - currentStart;
-    
+
     // If range is very small or zero, set value immediately
     if (Math.abs(range) < 0.01) {
         element.textContent = end.toFixed(decimals);
         return;
     }
-    
+
     const increment = range / (duration / 16);
     let current = currentStart;
-    
+
     const timer = setInterval(() => {
         current += increment;
         if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
@@ -655,10 +655,10 @@ function animateValue(id, start, end, duration, decimals) {
             element.textContent = current.toFixed(decimals);
         }
     }, 16);
-    
+
     // Store timer reference
     activeAnimations[id] = timer;
-    
+
     // Ensure final value is set even if animation is interrupted
     setTimeout(() => {
         if (activeAnimations[id]) {
@@ -706,9 +706,9 @@ function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
-    
+
     container.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.animation = 'slideOutRight 0.3s ease-out forwards';
         setTimeout(() => container.removeChild(toast), 300);

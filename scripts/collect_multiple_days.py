@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 # Add src to path
@@ -26,7 +26,7 @@ def collect_until_minimum(
     max_iterations: int = 100,
 ) -> None:
     """Collect data repeatedly until minimum records are reached.
-    
+
     Args:
         min_records: Minimum number of records required
         accumulated_path: Path to accumulated dataset
@@ -38,74 +38,87 @@ def collect_until_minimum(
     print("RECOPILACIÓN CONTINUA DE DATOS")
     print("=" * 80)
     print(f"Objetivo: {min_records} registros mínimos")
-    interval_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} horas"
+    interval_str = (
+        f"{int(interval_hours * 60)} minutos"
+        if interval_hours < 1
+        else f"{interval_hours} horas"
+    )
     print(f"Intervalo: {interval_str}")
     print(f"Máximo de intentos: {max_iterations}")
     print()
-    
+
     iteration = 0
-    
+
     while iteration < max_iterations:
         iteration += 1
         print(f"\n{'='*80}")
         print(f"ITERACIÓN {iteration}/{max_iterations}")
         print(f"Fecha/Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}\n")
-        
+
         try:
             # Collect new data
             from runner_air_planner.data_pipeline.accumulate_data import (
                 accumulate_ml_dataset,
             )
-            
+
             collector = DataCollector()
             air_quality_df = collector.collect_air_quality_data()
             weather_report = collector.get_weather_data()
-            
+
             ml_df = collector.create_ml_dataset(
                 air_quality_df=air_quality_df,
                 weather_report=weather_report,
                 min_records=0,  # Don't warn during accumulation
             )
-            
+
             # Accumulate
             accumulated_df = accumulate_ml_dataset(
                 ml_df,
                 accumulated_path,
                 max_days=max_days,
             )
-            
+
             # Save
             save_accumulated_dataset(accumulated_df, accumulated_path)
-            
+
             current_records = len(accumulated_df)
             print(f"\n✅ Registros acumulados: {current_records}")
-            
+
             if current_records >= min_records:
                 print(f"\n🎉 OBJETIVO ALCANZADO: {current_records} >= {min_records}")
                 print(f"Dataset guardado en: {accumulated_path}")
                 break
-            
+
             remaining = min_records - current_records
             print(f"⏳ Faltan {remaining} registros para alcanzar el mínimo")
-            
+
             if iteration < max_iterations:
-                wait_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} hora(s)"
+                wait_str = (
+                    f"{int(interval_hours * 60)} minutos"
+                    if interval_hours < 1
+                    else f"{interval_hours} hora(s)"
+                )
                 print(f"\n⏸️  Esperando {wait_str} antes de la próxima recopilación...")
                 time.sleep(interval_hours * 3600)
-        
+
         except KeyboardInterrupt:
             print("\n\n⚠️  Interrumpido por el usuario")
             break
         except Exception as e:
             print(f"\n❌ Error en iteración {iteration}: {e}")
             import traceback
+
             traceback.print_exc()
             if iteration < max_iterations:
-                retry_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} hora(s)"
+                retry_str = (
+                    f"{int(interval_hours * 60)} minutos"
+                    if interval_hours < 1
+                    else f"{interval_hours} hora(s)"
+                )
                 print(f"\n⏸️  Esperando {retry_str} antes de reintentar...")
                 time.sleep(interval_hours * 3600)
-    
+
     # Final summary
     if accumulated_path.exists():
         final_df = load_accumulated_dataset(accumulated_path)
@@ -114,7 +127,9 @@ def collect_until_minimum(
         print(f"{'='*80}")
         print(f"Total registros: {len(final_df)}")
         print(f"Estaciones: {final_df['station_code'].nunique()}")
-        print(f"Rango temporal: {final_df['measurement_time'].min()} a {final_df['measurement_time'].max()}")
+        print(
+            f"Rango temporal: {final_df['measurement_time'].min()} a {final_df['measurement_time'].max()}"
+        )
         print(f"Dataset: {accumulated_path}")
 
 
@@ -152,9 +167,9 @@ def main() -> None:
         default=100,
         help="Máximo número de intentos (default: 100)",
     )
-    
+
     args = parser.parse_args()
-    
+
     collect_until_minimum(
         min_records=args.min_records,
         accumulated_path=args.accumulated_path,
@@ -166,4 +181,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

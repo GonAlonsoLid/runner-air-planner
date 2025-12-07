@@ -337,26 +337,26 @@ STATION_MASTER: dict[int | str, dict[str, Any]] = {
 
 def get_pollutant_info(pollutant_code: int | str) -> dict[str, Any] | None:
     """Get information about a pollutant by its code.
-    
+
     Args:
         pollutant_code: Code of the pollutant (int or str, e.g., 1, "1", "so2", "no2")
-    
+
     Returns:
         Dictionary with pollutant information or None if not found
     """
     # Normalizar el código
     if isinstance(pollutant_code, str):
         pollutant_code = pollutant_code.lower().strip()
-    
+
     return POLLUTANT_MASTER.get(pollutant_code)
 
 
 def get_pollutant_name(pollutant_code: int | str) -> str:
     """Get the short name of a pollutant.
-    
+
     Args:
         pollutant_code: Code of the pollutant
-    
+
     Returns:
         Short name (e.g., "NO₂", "PM10") or the code as string if not found
     """
@@ -368,10 +368,10 @@ def get_pollutant_name(pollutant_code: int | str) -> str:
 
 def get_pollutant_full_name(pollutant_code: int | str) -> str:
     """Get the full name of a pollutant.
-    
+
     Args:
         pollutant_code: Code of the pollutant
-    
+
     Returns:
         Full name (e.g., "Dióxido de nitrógeno") or the code as string if not found
     """
@@ -383,10 +383,10 @@ def get_pollutant_full_name(pollutant_code: int | str) -> str:
 
 def get_station_info(station_code: int | str) -> dict[str, Any] | None:
     """Get information about a station by its code.
-    
+
     Args:
         station_code: Code of the station (int or str)
-    
+
     Returns:
         Dictionary with station information or None if not found
     """
@@ -396,16 +396,16 @@ def get_station_info(station_code: int | str) -> dict[str, Any] | None:
             station_code = int(station_code)
         except ValueError:
             return None
-    
+
     return STATION_MASTER.get(station_code)
 
 
 def get_station_name(station_code: int | str) -> str:
     """Get the name of a station.
-    
+
     Args:
         station_code: Code of the station
-    
+
     Returns:
         Station name or the code as string if not found
     """
@@ -417,12 +417,12 @@ def get_station_name(station_code: int | str) -> str:
 
 def normalize_pollutant_code(pollutant_code: int | str) -> str:
     """Normalize a pollutant code to the standard format used in the model.
-    
+
     Maps numeric codes to lowercase string names used by the model.
-    
+
     Args:
         pollutant_code: Code of the pollutant
-    
+
     Returns:
         Normalized code (e.g., "no2", "pm10", "o3")
     """
@@ -444,7 +444,7 @@ def normalize_pollutant_code(pollutant_code: int | str) -> str:
             "35": "etilbenceno",
         }
         return mapping.get(code, code)
-    
+
     # Si no se encuentra, intentar normalizar directamente
     if isinstance(pollutant_code, str):
         return pollutant_code.lower().strip()
@@ -461,4 +461,3 @@ __all__ = [
     "get_station_name",
     "normalize_pollutant_code",
 ]
-

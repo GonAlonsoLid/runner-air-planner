@@ -16,14 +16,14 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 class RunningSuitabilityModel:
     """Modelo de ML para predecir si es buen momento para correr.
-    
+
     Usa Random Forest para clasificar condiciones de calidad del aire
     y meteorología como "bueno para correr" (1) o "no recomendado" (0).
     """
 
     def __init__(self, *, model_path: Path | None = None) -> None:
         """Initialize the model.
-        
+
         Args:
             model_path: Path to saved model (loads if exists)
         """
@@ -39,30 +39,37 @@ class RunningSuitabilityModel:
 
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare feature columns for training/prediction.
-        
+
         Args:
             df: DataFrame with all columns
-            
+
         Returns:
             DataFrame with only feature columns
         """
         # Si el modelo ya está entrenado, usar SOLO las features que conoce
         if self.is_trained:
             # Preferir feature_names_in_ de scikit-learn si está disponible
-            if hasattr(self.model, 'feature_names_in_') and self.model.feature_names_in_ is not None:
+            if (
+                hasattr(self.model, "feature_names_in_")
+                and self.model.feature_names_in_ is not None
+            ):
                 required_features = list(self.model.feature_names_in_)
             elif self.feature_columns is not None:
                 required_features = self.feature_columns.copy()
             else:
-                raise RuntimeError("Model is trained but feature names are not available")
-            
+                raise RuntimeError(
+                    "Model is trained but feature names are not available"
+                )
+
             # Crear DataFrame con las features requeridas, rellenando faltantes con 0
             feature_df = pd.DataFrame(index=df.index)
             for feature in required_features:
-                feature_df[feature] = df[feature].fillna(0) if feature in df.columns else 0
-            
+                feature_df[feature] = (
+                    df[feature].fillna(0) if feature in df.columns else 0
+                )
+
             return feature_df[required_features]  # Asegurar orden correcto
-        
+
         # Si no está entrenado, definir features desde cero
         feature_groups = {
             "pollutant": ["no2", "o3", "pm10", "pm25", "no", "nox"],
@@ -88,61 +95,61 @@ class RunningSuitabilityModel:
             ],
             "station": ["is_traffic_station", "is_suburban_station"],
         }
-        
+
         all_features = [f for group in feature_groups.values() for f in group]
         available_features = [f for f in all_features if f in df.columns]
-        
+
         # Guardar para uso futuro
         self.feature_columns = available_features
-        
+
         return df[available_features].fillna(0)
 
     def calculate_running_score(self, df: pd.DataFrame) -> pd.Series:
         """Calculate running suitability score (0-100) based on all factors.
-        
+
         Score granular que discrimina entre estaciones usando penalizaciones
         continuas (sin doble penalización por rangos superpuestos).
-        
+
         Args:
             df: DataFrame with features
-            
+
         Returns:
             Series with scores (0-100, higher is better)
         """
         # Score base de 65 - permite rango natural de ~25 a ~95
         score = pd.Series(65.0, index=df.index)
-        
+
         # === CALIDAD DEL AIRE (factor principal ~35% del score) ===
         # Sistema continuo centrado en AQI=35 (valor típico urbano)
         if "air_quality_index" in df.columns:
             aqi = df["air_quality_index"].fillna(35)
-            
+
             # Ajuste: +10 para AQI=0, 0 para AQI=35, -15 para AQI=70
             # Fórmula: (35 - aqi) * 0.35, limitado para evitar extremos
             aqi_adjustment = (35 - aqi) * 0.35
             score += aqi_adjustment
-        
+
         # === CONTAMINANTES ESPECÍFICOS ===
         # Ajuste continuo más suave
         pollutant_config = {
             # pollutant: (valor_referencia, factor_ajuste)
-            "no2": (40, 0.08),   # Ref ~40 µg/m³
-            "o3": (50, 0.06),    # Ref ~50 µg/m³
-            "pm10": (30, 0.1),   # Ref ~30 µg/m³
+            "no2": (40, 0.08),  # Ref ~40 µg/m³
+            "o3": (50, 0.06),  # Ref ~50 µg/m³
+            "pm10": (30, 0.1),  # Ref ~30 µg/m³
             "pm25": (15, 0.15),  # Ref ~15 µg/m³
         }
-        
+
         for pollutant, (ref_val, factor) in pollutant_config.items():
             if pollutant in df.columns:
                 val = df[pollutant].fillna(ref_val)
                 # Ajuste: positivo si val < ref (aire limpio), negativo si val > ref
                 adjustment = (ref_val - val) * factor
                 score += adjustment
-        
+
         # === TEMPERATURA ===
         if "weather_temperature_c" in df.columns:
             temp = df["weather_temperature_c"].fillna(18)
-            
+
             # Temperatura ideal para correr: 12-20°C
             score.loc[(temp >= 12) & (temp <= 20)] += 6
             # Aceptable: 8-12°C o 20-25°C
@@ -155,11 +162,11 @@ class RunningSuitabilityModel:
             score.loc[(temp > 25) & (temp <= 30)] -= 6
             # Mucho calor: > 30°C
             score.loc[temp > 30] -= 15
-        
+
         # === VIENTO ===
         if "weather_wind_speed_kmh" in df.columns:
             wind = df["weather_wind_speed_kmh"].fillna(10)
-            
+
             # Viento ideal: 8-15 km/h (dispersa contaminación sin ser incómodo)
             score.loc[(wind >= 8) & (wind <= 15)] += 5
             # Viento moderado: 15-22 km/h
@@ -168,64 +175,64 @@ class RunningSuitabilityModel:
             score.loc[wind < 5] -= 8
             # Viento fuerte: > 25 km/h (incómodo)
             score.loc[wind > 25] -= 4
-        
+
         # === HUMEDAD ===
         if "weather_humidity" in df.columns:
             humidity = df["weather_humidity"].fillna(60)
-            
+
             # Humedad ideal: 40-60%
             score.loc[(humidity >= 40) & (humidity <= 60)] += 3
             # Muy seco: < 30%
             score.loc[humidity < 30] -= 2
             # Muy húmedo: > 80%
             score.loc[humidity > 80] -= 6
-        
+
         # === PRECIPITACIÓN ===
         if "weather_precipitation_probability" in df.columns:
             precip_prob = df["weather_precipitation_probability"].fillna(0)
-            
+
             # Sin lluvia
             score.loc[precip_prob <= 10] += 2
             # Probabilidad media: 30-60%
             score.loc[(precip_prob > 30) & (precip_prob <= 60)] -= 6
             # Alta probabilidad: > 60%
             score.loc[precip_prob > 60] -= 15
-        
+
         if "weather_precipitation_mm" in df.columns:
             precip = df["weather_precipitation_mm"].fillna(0)
             score -= precip * 6
             score.loc[precip > 1] -= 10
-        
+
         # Mal tiempo (códigos específicos)
         if "weather_code" in df.columns:
             bad_weather = [61, 63, 65, 71, 73, 75, 80, 81, 82, 95, 96, 99]
             score.loc[df["weather_code"].isin(bad_weather)] -= 25
-        
+
         # === TIPO DE ESTACIÓN ===
         if "is_suburban_station" in df.columns:
             score.loc[df["is_suburban_station"] == 1] += 6
-        
+
         if "is_traffic_station" in df.columns:
             score.loc[df["is_traffic_station"] == 1] -= 8
-        
+
         # === FACTORES DE SINERGIA ===
         if "wind_strong" in df.columns:
             score.loc[df["wind_strong"] == 1] += 3
-        
+
         if "wind_weak" in df.columns:
             score.loc[df["wind_weak"] == 1] -= 4
-        
+
         # === HORA DEL DÍA (rangos mutuamente excluyentes) ===
         if "hour" in df.columns:
             hour = df["hour"].fillna(12)
-            
+
             # Mañana temprana óptima: 7 (+3) - antes del rush
             score.loc[hour == 7] += 3
-            
+
             # Rush matutino (8-9) y vespertino (17-19)
             morning_rush = (hour >= 8) & (hour <= 9)
             evening_rush = (hour >= 17) & (hour <= 19)
-            
+
             if "is_weekend" in df.columns:
                 # Con info de fin de semana: +1 weekend, -1 laborable
                 is_weekend = df["is_weekend"].fillna(0)
@@ -236,33 +243,33 @@ class RunningSuitabilityModel:
             else:
                 # Sin info de fin de semana: neutral (0) en rush hour
                 pass
-            
+
             # Media mañana (10): buena hora (+2)
             score.loc[hour == 10] += 2
-            
+
             # Mediodía-tarde (11-16): neutral (0)
-            
+
             # Tarde-noche (20-22): buena hora (+2)
             score.loc[(hour >= 20) & (hour <= 22)] += 2
-            
+
             # Noche/madrugada (23-6): penalización (-4)
             score.loc[(hour >= 23) | (hour < 6)] -= 4
-        
+
         # Asegurar rango 5-98 para evitar extremos absolutos
         # (solo condiciones verdaderamente perfectas/terribles llegan a 98/5)
         score = score.clip(5, 98).round(1)
-        
+
         return score
 
     def create_target(self, df: pd.DataFrame) -> pd.Series:
         """Create target variable: is_good_to_run (0/1).
-        
+
         Basado en el score numérico: score >= 60 = bueno (1), score < 60 = no recomendado (0).
         El umbral de 60 asegura que solo condiciones genuinamente buenas se marquen como positivas.
-        
+
         Args:
             df: DataFrame with features
-            
+
         Returns:
             Series with target values (1 = good to run, 0 = not recommended)
         """
@@ -273,25 +280,25 @@ class RunningSuitabilityModel:
 
     def train(self, df: pd.DataFrame) -> dict[str, Any]:
         """Train the model.
-        
+
         Args:
             df: DataFrame with features and target
-            
+
         Returns:
             Dictionary with training metrics
         """
         X = self.prepare_features(df)
         y = self.create_target(df)
-        
+
         # Split train/test
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
-        
+
         # Train
         self.model.fit(X_train, y_train)
         self.is_trained = True
-        
+
         # Guardar las features usadas (importante para predicciones futuras)
         # Asegurar que feature_columns esté definido con las features exactas usadas
         if self.feature_columns is None:
@@ -299,11 +306,11 @@ class RunningSuitabilityModel:
         else:
             # Asegurar que coincidan
             self.feature_columns = list(X.columns)
-        
+
         # Evaluate
         train_score = self.model.score(X_train, y_train)
         test_score = self.model.score(X_test, y_test)
-        
+
         return {
             "train_accuracy": train_score,
             "test_accuracy": test_score,
@@ -313,79 +320,79 @@ class RunningSuitabilityModel:
 
     def predict(self, df: pd.DataFrame) -> pd.Series:
         """Predict if it's good to run.
-        
+
         Args:
             df: DataFrame with features
-            
+
         Returns:
             Series with predictions (1 = good, 0 = not recommended)
         """
         if not self.is_trained:
             raise RuntimeError("Model must be trained before prediction")
-        
+
         X = self.prepare_features(df)
         return pd.Series(self.model.predict(X), index=df.index)
-    
+
     def predict_score(self, df: pd.DataFrame) -> pd.Series:
         """Predict running suitability score (0-100).
-        
+
         Combina la predicción del modelo ML con el score calculado para dar
         una recomendación numérica más precisa y variada.
-        
+
         Args:
             df: DataFrame with features
-            
+
         Returns:
             Series with scores (0-100, higher is better)
         """
         if not self.is_trained:
             raise RuntimeError("Model must be trained before prediction")
-        
+
         # Calcular score base
         base_score = self.calculate_running_score(df)
-        
+
         # Obtener probabilidad del modelo ML
         proba = self.predict_proba(df)
         prob_good = proba["prob_good"]
-        
+
         # Combinar: ponderar 70% score base + 30% confianza del modelo ML
         # Esto da más peso al cálculo basado en reglas pero permite que el ML
         # ajuste significativamente el resultado
         ml_score = prob_good * 100  # Convertir probabilidad a escala 0-100
-        
+
         final_score = (base_score * 0.7) + (ml_score * 0.3)
-        
+
         # Asegurar que esté entre 0 y 100
         final_score = final_score.clip(0, 100)
-        
+
         # Redondear a 1 decimal
         final_score = final_score.round(1)
-        
+
         return final_score
 
     def predict_proba(self, df: pd.DataFrame) -> pd.DataFrame:
         """Predict probabilities for each class.
-        
+
         Args:
             df: DataFrame with features
-            
+
         Returns:
             DataFrame with probabilities for each class
         """
         if not self.is_trained:
             raise RuntimeError("Model must be trained before prediction")
-        
+
         X = self.prepare_features(df)
         proba = self.model.predict_proba(X)
-        
+
         # proba debería ser un array numpy con shape (n_samples, n_classes)
         # Para RandomForestClassifier con 2 clases, debería ser (n_samples, 2)
         import numpy as np
-        
+
         # Convertir a numpy array si no lo es
         if not isinstance(proba, np.ndarray):
             proba = np.array(proba)
-        
+
         # Asegurar que es 2D
         if proba.ndim == 1:
             # Si es 1D, podría ser que solo hay una clase, crear segunda columna
@@ -393,7 +400,7 @@ class RunningSuitabilityModel:
             if proba.shape[1] == 1:
                 # Solo una clase, crear segunda columna complementaria
                 proba = np.column_stack([1 - proba, proba])
-        
+
         # Asegurar que tiene 2 columnas
         if proba.shape[1] == 1:
             # Solo una columna, crear la segunda
@@ -401,7 +408,7 @@ class RunningSuitabilityModel:
         elif proba.shape[1] > 2:
             # Más de 2 columnas, tomar solo las primeras 2
             proba = proba[:, :2]
-        
+
         # Crear DataFrame con el índice del df original
         result_df = pd.DataFrame(
             {
@@ -410,9 +417,8 @@ class RunningSuitabilityModel:
             },
             index=df.index,  # Usar el índice del df original
         )
-        
+
         return result_df
 
 
 __all__ = ["RunningSuitabilityModel", "MODELS_DIR"]
-
