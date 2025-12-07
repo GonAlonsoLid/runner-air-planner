@@ -22,7 +22,7 @@ def collect_until_minimum(
     min_records: int = 1000,
     accumulated_path: Path = Path("data/ml_dataset_accumulated.csv"),
     max_days: int = 30,
-    interval_hours: int = 1,
+    interval_hours: float = 1,
     max_iterations: int = 100,
 ) -> None:
     """Collect data repeatedly until minimum records are reached.
@@ -38,7 +38,8 @@ def collect_until_minimum(
     print("RECOPILACIÓN CONTINUA DE DATOS")
     print("=" * 80)
     print(f"Objetivo: {min_records} registros mínimos")
-    print(f"Intervalo: {interval_hours} horas")
+    interval_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} horas"
+    print(f"Intervalo: {interval_str}")
     print(f"Máximo de intentos: {max_iterations}")
     print()
     
@@ -89,7 +90,8 @@ def collect_until_minimum(
             print(f"⏳ Faltan {remaining} registros para alcanzar el mínimo")
             
             if iteration < max_iterations:
-                print(f"\n⏸️  Esperando {interval_hours} hora(s) antes de la próxima recopilación...")
+                wait_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} hora(s)"
+                print(f"\n⏸️  Esperando {wait_str} antes de la próxima recopilación...")
                 time.sleep(interval_hours * 3600)
         
         except KeyboardInterrupt:
@@ -100,7 +102,8 @@ def collect_until_minimum(
             import traceback
             traceback.print_exc()
             if iteration < max_iterations:
-                print(f"\n⏸️  Esperando {interval_hours} hora(s) antes de reintentar...")
+                retry_str = f"{int(interval_hours * 60)} minutos" if interval_hours < 1 else f"{interval_hours} hora(s)"
+                print(f"\n⏸️  Esperando {retry_str} antes de reintentar...")
                 time.sleep(interval_hours * 3600)
     
     # Final summary
@@ -139,9 +142,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--interval-hours",
-        type=int,
+        type=float,
         default=1,
-        help="Horas de espera entre recopilaciones (default: 1)",
+        help="Horas de espera entre recopilaciones (default: 1, usa 0.5 para media hora)",
     )
     parser.add_argument(
         "--max-iterations",

@@ -14,10 +14,9 @@ venv/
 # Data artifacts
 data/*.csv
 data/*.json
+data/*.log
+!data/ml_dataset_accumulated.csv
 !data/.gitkeep
-!data/raw/.gitkeep
-!data/interim/.gitkeep
-!data/processed/.gitkeep
 
 # Development helpers
 /notebooks/
